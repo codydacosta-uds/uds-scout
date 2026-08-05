@@ -50,52 +50,37 @@ Alternatively, copy `.env.local.example` to `.env.local` and enter the token the
 
 - Access to this source repository
 - Docker Desktop, OrbStack, or another running Docker-compatible engine
+- [Task](https://taskfile.dev/installation/) installed (`brew install go-task` on macOS)
 - A GitHub token with read access to the repositories the user wants to manage
 - Organization authorization for the token when the selected repositories enforce SSO
 - A GitLab token only when the optional GitLab work-item integration is needed
 
-Clone the repository and build the production image:
+Clone the repository and start the application:
 
 ```bash
 git clone https://github.com/codydacosta-uds/d2d-operations.git
 cd d2d-operations
-docker build -t d2d-operations .
+task docker:start
 ```
 
-Store the runtime token outside the repository in a local file:
+Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in the setup screen, and choose repositories. The token remains only in the running server process and must be entered again when the container is replaced. The `d2d-operations-data` volume persists the non-secret repository selection.
+
+If port 3001 is already in use, run:
 
 ```bash
-mkdir -p "$HOME/.config/d2d-operations"
-cat > "$HOME/.config/d2d-operations/container.env" <<'EOF'
-GITHUB_TOKEN=github_pat_replace_with_your_token
-# Optional GitLab integration:
-# GITLAB_TOKEN=replace_with_your_token
-# GITLAB_URL=https://gitlab.example.com
-EOF
-chmod 600 "$HOME/.config/d2d-operations/container.env"
+task docker:start PORT=3002
 ```
 
-Start the container with its port restricted to the local machine:
+Then open `http://127.0.0.1:3002`. The task always publishes on `127.0.0.1`, so the application is not exposed to other network interfaces.
+
+Useful commands:
 
 ```bash
-docker run --detach \
-  --name d2d-operations \
-  --restart unless-stopped \
-  --env-file "$HOME/.config/d2d-operations/container.env" \
-  --publish 127.0.0.1:3001:3001 \
-  --mount source=d2d-operations-data,target=/data \
-  d2d-operations
+task docker:logs  # Follow application logs
+task docker:stop  # Remove the container but preserve repository selections
 ```
 
-Open [http://127.0.0.1:3001](http://127.0.0.1:3001) and complete repository selection. The named volume persists the non-secret workspace selection across container replacements. Tokens remain in the container environment and are not written to that volume or returned to the browser.
-
-If port 3001 is already in use, replace the publish argument with `--publish 127.0.0.1:3002:3001` and open `http://127.0.0.1:3002` instead.
-
-Use the explicit `127.0.0.1` host binding shown above. Publishing `3001:3001` without a host address exposes the application to other network interfaces. Inspect startup progress with `docker logs --follow d2d-operations`. Stop and remove the container with:
-
-```bash
-docker rm --force d2d-operations
-```
+For unattended restarts or optional GitLab integration, use the documented environment variables from `.env.local.example` with a protected Docker environment file. Never commit that file or bake tokens into the image.
 
 ## Current MVP
 
