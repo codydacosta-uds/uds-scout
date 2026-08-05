@@ -1,13 +1,13 @@
 # D2D Operations
 
-A local-first, read-only engineering console for a focused set of day-to-day GitHub repositories and assigned SONIC GitLab work.
+A local-first, read-only engineering console for explicitly selected GitHub repositories, with optional GitLab and repository-specific operational integrations.
 
 ## Stack
 
 - **Next.js 16** — frontend and backend in one local process
 - **React 19 + TypeScript** — dashboard UI and type safety
 - **GitHub REST API** — live repository, issue, PR, and Actions data
-- **GitLab REST API** — open work items assigned to the current SONIC GitLab user
+- **GitLab REST API** — optional open work items assigned to the connected GitLab user
 - **AWS Cloudscape Design System** — accessible console components and layout patterns
 - **Minimal custom CSS** — limited to layout adjustments and attention states
 - **In-memory cache** — 60-second GitHub and GitLab API cache; no database required
@@ -28,7 +28,7 @@ Start D2D Operations with:
 task start
 ```
 
-The task installs dependencies when needed, loads `GITHUB_TOKEN` and `GITLAB_TOKEN` from `~/.zshrc`, and starts the development server. Then open or bookmark [http://d2d.admin.uds.localhost:3001](http://d2d.admin.uds.localhost:3001). The `.localhost` domain automatically resolves to `127.0.0.1`, so no hosts-file change is required. Use `Ctrl+C` to stop it. Run `task --list` to see all available tasks.
+The task installs dependencies when needed, loads `GITHUB_TOKEN` and `GITLAB_TOKEN` from `~/.zshrc`, and starts the development server. Open [http://127.0.0.1:3001](http://127.0.0.1:3001). Use `Ctrl+C` to stop it and `task --list` to see all available tasks.
 
 D2D Operations opens the two-step local setup flow on first boot. If `GITHUB_TOKEN` is already available, the first step confirms **GitHub token found** without exposing its value; the operator then continues to repository selection. Tokens entered in the browser are held only in server memory and must be entered again after the app process restarts. Repository selections are stored at `~/.config/d2d-operations/settings.json` with local-user permissions. Open **Workspace settings** from the side navigation to change the selection or use **Run setup again** to replay the first-run workflow without clearing the active workspace until a new selection is saved.
 
@@ -50,7 +50,7 @@ Alternatively, copy `.env.local.example` to `.env.local` and enter the token the
 - Local first-run setup with server-only GitHub token validation and explicit managed-repository selection
 - Action-oriented operational overview with a time-based greeting and browser-local card ordering
 - Latest Zarf and Pepr release cards with direct release details
-- Assigned SONIC GitLab work item table with direct links to each item and the filtered GitLab board
+- Optional assigned GitLab work item table with direct links to each item and the filtered GitLab board
 - UDS Packages repository count card and searchable, sortable, paginated organization catalog with contributor totals
 - Open pull request and issue totals
 - Pipeline health and failure alerts
@@ -58,13 +58,13 @@ Alternatively, copy `.env.local.example` to `.env.local` and enter the token the
 - Cross-repository Renovate inbox for open `renovate/*` pull requests
 - Per-repository Renovate counts with 60-second auto-refresh
 - Dedicated repository pages with pull requests, updates, issues, pipelines, infrastructure, and related resources
-- At-a-glance Zeus host health in Test Lab with read-only CPU/load, memory, disk, `/tmp`, and uptime telemetry through the restricted runner
-- Branch-driven Test Lab with fixed deploy-only and deploy-and-test modes, required single-flavor selection from the branch's `zarf.yaml`, live UDS output and workloads, on-demand bundle-scoped container image inventory, and exact-bundle cleanup on the existing Zeus cluster
+- At-a-glance aggregate host health in Test Lab through a restricted, read-only runner
+- Branch-driven Test Lab for eligible UDS package repositories, with fixed deploy-only and deploy-and-test modes, required single-flavor selection, live UDS output and workloads, bundle-scoped image inspection, and exact-bundle cleanup
 - Context-aware operator help covering features, system connection points, refresh behavior, status semantics, and safety responsibilities
 - Eligible package pull requests can open Test Lab with the source branch preselected and the deploy-and-test confirmation ready
-- Interactive Infrastructure Explorer for `iac/swf`, including Terraform inventory, ownership, inferred dependencies, plain-English resource details, reusable patterns, providers, environments, inputs, and outputs
-- Deployment knowledge base derived from UDS tasks, showing root-module order, operator commands, environment status, source links, and outcomes
-- UDS configuration and bundle explorer connecting Terraform outputs to Secrets Manager, generated config sections, and ordered UDS packages without exposing secret values
+- Capability-based Infrastructure Explorer for supported repositories, including Terraform inventory, ownership, parsed dependencies, plain-English resource details, reusable patterns, providers, environments, inputs, and outputs
+- Optional deployment knowledge derived from repository-defined UDS tasks, including order, operator commands, environment status, source links, and outcomes
+- Optional UDS configuration and bundle explorer connecting Terraform outputs to generated configuration and ordered packages without exposing secret values
 - Responsive Cloudscape console interface
 
 All features are read-only. Deeper investigation links back to GitHub or GitLab.
@@ -86,7 +86,7 @@ Keep feature-specific UI in its focused module instead of growing the applicatio
 - `POST /api/setup/connect` — validate and retain a session-only GitHub token
 - `GET|POST /api/setup/repositories` — list available repositories and save the managed selection
 - `GET /api/github/overview`
-- `GET /api/github/repository?repo=uds-packages/jira`
+- `GET /api/github/repository?repo=owner/repository`
 - `GET /api/github/infrastructure`
 - `GET /api/github/uds-packages` — repositories visible in the `uds-packages` organization
 - `GET /api/github/uds-packages/contributors` — cached contributor totals for the organization catalog
