@@ -46,9 +46,19 @@ Alternatively, copy `.env.local.example` to `.env.local` and enter the token the
 
 ## Run with Docker
 
-Build the production image:
+### Prerequisites
+
+- Access to this source repository
+- Docker Desktop, OrbStack, or another running Docker-compatible engine
+- A GitHub token with read access to the repositories the user wants to manage
+- Organization authorization for the token when the selected repositories enforce SSO
+- A GitLab token only when the optional GitLab work-item integration is needed
+
+Clone the repository and build the production image:
 
 ```bash
+git clone https://github.com/codydacosta-uds/d2d-operations.git
+cd d2d-operations
 docker build -t d2d-operations .
 ```
 
@@ -79,7 +89,9 @@ docker run --detach \
 
 Open [http://127.0.0.1:3001](http://127.0.0.1:3001) and complete repository selection. The named volume persists the non-secret workspace selection across container replacements. Tokens remain in the container environment and are not written to that volume or returned to the browser.
 
-Use the explicit `127.0.0.1` host binding shown above. Publishing `3001:3001` without a host address exposes the application to other network interfaces. Stop and remove the container with:
+If port 3001 is already in use, replace the publish argument with `--publish 127.0.0.1:3002:3001` and open `http://127.0.0.1:3002` instead.
+
+Use the explicit `127.0.0.1` host binding shown above. Publishing `3001:3001` without a host address exposes the application to other network interfaces. Inspect startup progress with `docker logs --follow d2d-operations`. Stop and remove the container with:
 
 ```bash
 docker rm --force d2d-operations
