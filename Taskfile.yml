@@ -1,0 +1,33 @@
+version: "3"
+
+# D2D Operations local development tasks.
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  start:
+    desc: Start D2D Operations on 127.0.0.1:3001
+    cmds:
+      - test -d node_modules || npm install
+      - echo "D2D Operations http://d2d.admin.uds.localhost:3001/"
+      - zsh -c 'source "$HOME/.zshrc" && npm run dev'
+    silent: true
+
+  setup:
+    desc: Install Node.js dependencies
+    cmds:
+      - npm install
+
+  check:
+    desc: Run lint and production build checks
+    cmds:
+      - npm run lint
+      - npm run build
+
+  build:
+    desc: Create a production build
+    cmds:
+      - npm run build

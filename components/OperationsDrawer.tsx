@@ -1,0 +1,479 @@
+"use client";
+
+/* eslint-disable react-hooks/set-state-in-effect -- Pull-request selection resets when drawer context changes. */
+
+import Badge from "@cloudscape-design/components/badge";
+import Box from "@cloudscape-design/components/box";
+import Button from "@cloudscape-design/components/button";
+import Container from "@cloudscape-design/components/container";
+import Drawer from "@cloudscape-design/components/drawer";
+import ExpandableSection from "@cloudscape-design/components/expandable-section";
+import Header from "@cloudscape-design/components/header";
+import KeyValuePairs from "@cloudscape-design/components/key-value-pairs";
+import Link from "@cloudscape-design/components/link";
+import RadioGroup from "@cloudscape-design/components/radio-group";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import StatusIndicator from "@cloudscape-design/components/status-indicator";
+import { useEffect, useState } from "react";
+import { InfrastructureNodeDrawer } from "./InfrastructureExplorer";
+import { ReleaseNotes } from "./ReleaseNotes";
+import type { InfrastructureExplorerData } from "./infrastructure-types";
+import type { DrawerSelection } from "./operations-types";
+import {
+  canTestPullRequest,
+  DrawerKeyValueList,
+  EmptyState,
+  newestPulls,
+  pipelineStatus,
+  PullAuthor,
+  PullPeople,
+  pullRequestTestLabHref,
+  relativeTime,
+  repositoryHealth,
+  runStatus,
+  TestInLabButton,
+  udsCommonStatus,
+  UdsCoreVersion,
+} from "./operations-ui";
+import type { Overview, PullRequest } from "./types";
+
+function markdownText(value: string) {
+  return value
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/?(?:details|summary|p|div|table|thead|tbody|tr|th|td)[^>]*>/gi, "")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/[*_~`]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function markdownTableCells(line: string) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => markdownText(cell.trim()));
+}
+
+function parsePullBody(body: string) {
+  const lines = body.split(/\r?\n/);
+  for (let index = 0; index < lines.length - 2; index += 1) {
+    if (!lines[index].trim().startsWith("|") || !lines[index + 1].trim().startsWith("|")) continue;
+    const headers = markdownTableCells(lines[index]);
+    const separators = markdownTableCells(lines[index + 1]);
+    if (headers.length < 2 || separators.length !== headers.length || !separators.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+
+    let end = index + 2;
+    const rows: string[][] = [];
+    while (end < lines.length && lines[end].trim().startsWith("|")) {
+      const cells = markdownTableCells(lines[end]);
+      if (cells.some(Boolean)) rows.push(headers.map((_, cellIndex) => cells[cellIndex] ?? "Not specified"));
+      end += 1;
+    }
+    if (!rows.length) continue;
+
+    const remaining = markdownText([...lines.slice(0, index), ...lines.slice(end)].join("\n"))
+      .replace(/^This PR contains the following updates?:?\s*/i, "")
+      .trim();
+    return { headers, rows, remaining };
+  }
+  return null;
+}
+
+function pullChangeDetails(headers: string[], row: string[]) {
+  return headers.slice(1).flatMap((header, index) => {
+    const value = row[index + 1] || "Not specified";
+    if (/change|version/i.test(header)) {
+      const versions = value.split(/\s*(?:→|->)\s*/);
+      if (versions.length === 2) {
+        return [
+          { label: "Current version", value: versions[0] },
+          { label: "Target version", value: versions[1] },
+        ];
+      }
+    }
+    return [{ label: header || `Detail ${index + 1}`, value }];
+  });
+}
+
+function PullRequestDescription({ pull }: { pull: PullRequest }) {
+  const body = pull.body ?? pull.summary;
+  if (!body) {
+    return <Container header={<Header variant="h3">Description</Header>}><Box color="text-body-secondary">No pull request description is available. Open GitHub to inspect the changed files.</Box></Container>;
+  }
+
+  const table = parsePullBody(body);
+  if (!table) {
+    return <Container header={<Header variant="h3">Description</Header>}><div className="pull-request-description">{markdownText(body)}</div></Container>;
+  }
+
+  const dependencyTable = table.headers.some((header) => /package|dependency/i.test(header));
+  return (
+    <Container header={<Header variant="h3" counter={`(${table.rows.length})`}>{dependencyTable ? "Dependency changes" : "Structured changes"}</Header>}>
+      <SpaceBetween size="m">
+        <div className="pull-request-change-list">
+          {table.rows.map((row, rowIndex) => (
+            <div className="pull-request-change" key={`${row[0]}-${rowIndex}`}>
+              <Box variant="h4">{row[0] || `Change ${rowIndex + 1}`}</Box>
+              <KeyValuePairs columns={1} items={pullChangeDetails(table.headers, row)} />
+            </div>
+          ))}
+        </div>
+        {table.remaining ? <ExpandableSection headerText="Additional PR details"><div className="pull-request-description">{table.remaining}</div></ExpandableSection> : null}
+      </SpaceBetween>
+    </Container>
+  );
+}
+
+function pullSelectionKey(pull: PullRequest, repository: string) {
+  return `${repository}:${pull.id}`;
+}
+
+function DrawerPullOption({ pull, repository, generatedAt, selectedKey, onSelectionChange, onOpen, children }: {
+  pull: PullRequest;
+  repository: string;
+  generatedAt: string;
+  selectedKey: string | null;
+  onSelectionChange: (key: string) => void;
+  onOpen: () => void;
+  children?: React.ReactNode;
+}) {
+  const key = pullSelectionKey(pull, repository);
+  return (
+    <Container>
+      <RadioGroup
+        name="drawer-pull-selection"
+        value={selectedKey}
+        onChange={({ detail }) => onSelectionChange(detail.value)}
+        items={[{
+          value: key,
+          disabled: !canTestPullRequest(pull, repository),
+          label: <Link href={pull.url} onFollow={(event) => { event.preventDefault(); onOpen(); }}>{pull.title}</Link>,
+          description: <SpaceBetween size="xxs"><Box color="text-body-secondary">{repository} · #{pull.number} · by {pull.author} · opened {relativeTime(pull.createdAt, generatedAt)}</Box>{children}</SpaceBetween>,
+        }]}
+      />
+    </Container>
+  );
+}
+
+export function OperationsDrawer({ selection, overview, infrastructure, onSelect, navigate }: {
+  selection: DrawerSelection;
+  overview: Overview;
+  infrastructure: InfrastructureExplorerData | null;
+  onSelect: (selection: DrawerSelection) => void;
+  navigate: (href: string) => void;
+}) {
+  const [selectedDrawerPull, setSelectedDrawerPull] = useState<string | null>(null);
+  const drawerSelectionScope = `${selection.type}:${"repository" in selection ? selection.repository ?? "all" : "all"}`;
+  useEffect(() => setSelectedDrawerPull(null), [drawerSelectionScope]);
+
+  if (selection.type === "infrastructure-node" && infrastructure) {
+    return <InfrastructureNodeDrawer node={selection.node} data={infrastructure} onSelect={(node) => onSelect({ type: "infrastructure-node", node })} />;
+  }
+
+  if (selection.type === "pull-request") {
+    const { pull } = selection;
+    return (
+      <Drawer
+        header={`Pull request #${pull.number}`}
+        footer={<SpaceBetween direction="horizontal" size="xs">{canTestPullRequest(pull, selection.repository) && selection.repository ? <TestInLabButton onClick={() => navigate(pullRequestTestLabHref(pull, selection.repository!))} /> : null}<Button href={pull.url} external>Open in GitHub</Button>{selection.repository ? <Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button> : null}</SpaceBetween>}
+      >
+        <SpaceBetween size="l">
+          <Box variant="h3">{pull.title}</Box>
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: selection.repository ?? "Unknown" },
+            { label: "Author", value: <PullAuthor pull={pull} /> },
+            { label: "Source branch", value: <Box variant="code">{pull.head}</Box> },
+            { label: "Target branch", value: <Box variant="code">{pull.base}</Box> },
+            { label: "Status", value: pull.draft ? <StatusIndicator type="pending">Draft</StatusIndicator> : <StatusIndicator type="success">Ready for review</StatusIndicator> },
+            { label: "Assigned to", value: <PullPeople people={pull.assignees} /> },
+            { label: "Review requested from", value: <PullPeople people={pull.requestedReviewers} empty="No reviewers requested" /> },
+            { label: "Age", value: relativeTime(pull.createdAt, overview.generatedAt) },
+            { label: "Updated", value: relativeTime(pull.updatedAt, overview.generatedAt) },
+          ]} />
+          <PullRequestDescription pull={pull} />
+          {pull.labels.length ? <SpaceBetween direction="horizontal" size="xs">{pull.labels.map((label) => <Badge key={label.name}>{label.name}</Badge>)}</SpaceBetween> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "pipeline-run") {
+    const { run } = selection;
+    return (
+      <Drawer header={`Pipeline run #${run.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><Button href={run.url} external variant="primary">Open in GitHub</Button><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
+        <SpaceBetween size="l">
+          <Box variant="h3">{run.title}</Box>
+          {runStatus(run)}
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: selection.repository },
+            { label: "Workflow", value: run.name },
+            { label: "Branch", value: run.branch ?? "Unknown" },
+            { label: "Trigger", value: run.event },
+            { label: "Started by", value: run.actor },
+            { label: "Started", value: relativeTime(run.createdAt, overview.generatedAt) },
+          ]} />
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "issue") {
+    const { issue } = selection;
+    return (
+      <Drawer header={`Issue #${issue.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><Button href={issue.url} external variant="primary">Open in GitHub</Button><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
+        <SpaceBetween size="l">
+          <Box variant="h3">{issue.title}</Box>
+          <StatusIndicator type="warning">Open</StatusIndicator>
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: selection.repository },
+            { label: "Author", value: issue.author },
+            { label: "Created", value: relativeTime(issue.createdAt, overview.generatedAt) },
+            { label: "Updated", value: relativeTime(issue.updatedAt, overview.generatedAt) },
+          ]} />
+          {issue.labels.length ? <SpaceBetween direction="horizontal" size="xs">{issue.labels.map((label) => <Badge key={label.name}>{label.name}</Badge>)}</SpaceBetween> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "repository") {
+    const repository = selection.repository;
+    return (
+      <Drawer header={repository.name} footer={<SpaceBetween direction="horizontal" size="xs"><Button onClick={() => navigate(`/repositories/${repository.fullName}`)} variant="primary">Open repository page</Button><Button href={repository.url} external>GitHub</Button></SpaceBetween>}>
+        <SpaceBetween size="l">
+          <Box color="text-body-secondary">{repository.description ?? "Tracked repository"}</Box>
+          {repositoryHealth(repository)}
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: repository.fullName },
+            { label: "Open pull requests", value: repository.openPullRequests },
+            { label: "Renovate updates", value: repository.renovatePulls },
+            { label: "Your review requests", value: repository.reviewRequests },
+            { label: "UDS Common", value: udsCommonStatus(repository.udsCommon) },
+            { label: "Open issues", value: repository.issueCount },
+            { label: "Latest pipeline", value: pipelineStatus(repository.pipeline) },
+            { label: "Last updated", value: relativeTime(repository.updatedAt, overview.generatedAt) },
+          ]} />
+          {repository.renovatePulls ? <Button onClick={() => onSelect({ type: "renovate", repository: repository.fullName })}>View Renovate updates</Button> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "tool-release") {
+    const release = overview.tools[selection.tool];
+    return (
+      <Drawer header={`${release.name} release`} footer={<Button href={release.url} external variant="primary">Open release</Button>}>
+        <SpaceBetween size="l">
+          <Box variant="awsui-value-large">{release.version ?? "Unavailable"}</Box>
+          <Box color="text-body-secondary">Latest release published by {release.repository}.</Box>
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: release.repository },
+            { label: "Latest version", value: release.version ?? "Unavailable" },
+          ]} />
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "uds-versions") {
+    if (!overview.capabilities.sonic) {
+      return (
+        <Drawer header="Latest UDS versions">
+          <SpaceBetween size="l">
+            <Container header={<Header variant="h3">UDS Core</Header>}>
+              <SpaceBetween size="s">
+                <Box variant="awsui-value-large">{overview.udsCore.upstreamVersion ?? "Unavailable"}</Box>
+                <Box color="text-body-secondary">Latest defenseunicorns/uds-core release.</Box>
+                <Button onClick={() => onSelect({ type: "uds-core" })}>View UDS Core details</Button>
+              </SpaceBetween>
+            </Container>
+            <Container header={<Header variant="h3">UDS Common</Header>}>
+              <SpaceBetween size="s">
+                <Box variant="awsui-value-large">{overview.udsCommon.latestVersion ?? "Unavailable"}</Box>
+                <Box color="text-body-secondary">Latest defenseunicorns/uds-common release.</Box>
+                <Button href={overview.udsCommon.latestUrl} external>Open UDS Common release</Button>
+              </SpaceBetween>
+            </Container>
+          </SpaceBetween>
+        </Drawer>
+      );
+    }
+
+    const alignedRepositories = overview.udsCommon.repositories.length - overview.udsCommon.needsAttention;
+    const commonUpdateAvailable = overview.udsCommon.repositories.some((repository) => repository.status === "outdated");
+    return (
+      <Drawer header="UDS versions">
+        <SpaceBetween size="l">
+          <Container header={<Header variant="h3">UDS Core</Header>}>
+            <SpaceBetween size="s">
+              <Box variant="awsui-value-large"><UdsCoreVersion udsCore={overview.udsCore} /></Box>
+              <Box color="text-body-secondary">Tracked by {overview.udsCore.repository} and compared with the latest upstream release.</Box>
+              <Button onClick={() => onSelect({ type: "uds-core" })}>View UDS Core details</Button>
+            </SpaceBetween>
+          </Container>
+          <Container header={<Header variant="h3">UDS Common</Header>}>
+            <SpaceBetween size="s">
+              <Box variant="awsui-value-large">{overview.udsCommon.latestVersion ?? "Unavailable"}</Box>
+              {overview.udsCommon.needsAttention ? <StatusIndicator type="warning">{overview.udsCommon.needsAttention} repositories need attention</StatusIndicator> : <StatusIndicator type="success">{alignedRepositories} repositories aligned</StatusIndicator>}
+              <Box color="text-body-secondary">Repository task includes are compared with the latest UDS Common release.</Box>
+              <Button onClick={() => onSelect({ type: "uds-common" })}>View UDS Common details</Button>
+            </SpaceBetween>
+          </Container>
+          {overview.udsCore.comparison === "behind" ? <ReleaseNotes product="UDS Core" version={overview.udsCore.upstreamVersion} notes={overview.udsCore.upstreamReleaseNotes} /> : null}
+          {commonUpdateAvailable ? <ReleaseNotes product="UDS Common" version={overview.udsCommon.latestVersion} notes={overview.udsCommon.latestReleaseNotes} /> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "uds-common") {
+    const repositories = overview.udsCommon.repositories
+      .filter((item) => !selection.repository || item.repository === selection.repository)
+      .sort((a, b) => Number(a.status === "current") - Number(b.status === "current"));
+    const repositoriesNeedingAlignment = repositories.filter((item) => item.status !== "current");
+    const commonUpdateAvailable = repositories.some((item) => item.status === "outdated");
+    return (
+      <Drawer
+        header="UDS Common alignment"
+        footer={<Button href={overview.udsCommon.latestUrl} external variant="primary">Open latest UDS Common release</Button>}
+      >
+        <SpaceBetween size="l">
+          <DrawerKeyValueList items={[
+            { label: "Latest release", value: overview.udsCommon.latestVersion ? <Link href={overview.udsCommon.latestUrl} external>{overview.udsCommon.latestVersion}</Link> : "Unavailable" },
+            { label: "Repositories checked", value: repositories.length },
+          ]} />
+          {repositoriesNeedingAlignment.length ? <StatusIndicator type="warning">{repositoriesNeedingAlignment.map((item) => item.repository).join(", ")} {repositoriesNeedingAlignment.length === 1 ? "is" : "are"} out of alignment</StatusIndicator> : <StatusIndicator type="success">All checked repositories use the latest version</StatusIndicator>}
+          <Box color="text-body-secondary">Each repository is checked against the UDS Common URLs under the root <Box variant="code" display="inline">tasks.yaml</Box> includes section. Repositories needing attention are listed first.</Box>
+          {repositories.map((item) => (
+            <Container key={item.repository} header={<Header variant="h3">{item.repository}</Header>}>
+              <SpaceBetween size="s">
+                {udsCommonStatus(item)}
+                <DrawerKeyValueList items={[
+                  { label: "Referenced version", value: item.versions.length ? item.versions.join(", ") : "Not detected" },
+                  { label: "Common includes", value: item.includes.length },
+                ]} />
+                {item.includes.length ? <SpaceBetween size="xs">{item.includes.map((include) => <Box key={include.url}><Link href={include.url} external>{include.name}</Link><Box color="text-body-secondary">{include.version ? `Version ${include.version}` : "Version not detected in URL"}</Box></Box>)}</SpaceBetween> : <Box color="text-body-secondary">No versioned defenseunicorns/uds-common includes were detected.</Box>}
+                {item.tasksUrl ? <Button href={item.tasksUrl} external variant="inline-link">Open tasks.yaml</Button> : null}
+              </SpaceBetween>
+            </Container>
+          ))}
+          {commonUpdateAvailable ? <ReleaseNotes product="UDS Common" version={overview.udsCommon.latestVersion} notes={overview.udsCommon.latestReleaseNotes} /> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "uds-core") {
+    if (!overview.capabilities.sonic) {
+      return (
+        <Drawer header="Latest UDS Core release" footer={<Button href={overview.udsCore.upstreamUrl} external variant="primary">Open UDS Core release</Button>}>
+          <SpaceBetween size="l">
+            <Box variant="awsui-value-large">{overview.udsCore.upstreamVersion ?? "Unavailable"}</Box>
+            <Box color="text-body-secondary">This workspace does not track a SONIC repository, so D2D Operations shows the latest upstream defenseunicorns/uds-core release without a local comparison.</Box>
+          </SpaceBetween>
+        </Drawer>
+      );
+    }
+
+    const coreStatus = overview.udsCore.comparison === "current"
+      ? <StatusIndicator type="success">{overview.udsCore.repository} matches the latest upstream release</StatusIndicator>
+      : overview.udsCore.comparison === "behind"
+        ? <StatusIndicator type="warning">{overview.udsCore.repository} is out of date</StatusIndicator>
+        : overview.udsCore.comparison === "ahead"
+          ? <StatusIndicator type="info">Tracked version differs from upstream</StatusIndicator>
+          : <StatusIndicator type="pending">Upstream comparison unavailable</StatusIndicator>;
+    return (
+      <Drawer
+        header="UDS Core version"
+        footer={<SpaceBetween direction="horizontal" size="xs"><Button href={overview.udsCore.upstreamUrl} external variant="primary">Open UDS Core</Button>{overview.udsCore.url ? <Button href={overview.udsCore.url} external>View source file</Button> : null}</SpaceBetween>}
+      >
+        <SpaceBetween size="l">
+          <Box variant="awsui-value-large"><UdsCoreVersion udsCore={overview.udsCore} /></Box>
+          {coreStatus}
+          <Box color="text-body-secondary">The tracked version is compared by major, minor, and patch against the latest defenseunicorns/uds-core release. The local -unicorn suffix is ignored.</Box>
+          <div className="uds-core-detail-links">
+            <DrawerKeyValueList items={[
+              { label: "Source repository", value: <Link href={`https://github.com/${overview.udsCore.repository}`} external>{overview.udsCore.repository}</Link> },
+              { label: "Tracked version", value: overview.udsCore.url && overview.udsCore.version ? <Link href={overview.udsCore.url} external>{overview.udsCore.version}</Link> : overview.udsCore.version ?? "Unavailable" },
+              { label: "Latest upstream release", value: overview.udsCore.upstreamVersion ? <Link href={overview.udsCore.upstreamUrl} external>{overview.udsCore.upstreamVersion}</Link> : "Unavailable" },
+              { label: "Configuration file", value: overview.udsCore.url ? <Link href={overview.udsCore.url} external><span className="uds-core-config-path">{overview.udsCore.sourcePath}</span></Link> : <Box variant="code">{overview.udsCore.sourcePath}</Box> },
+            ]} />
+          </div>
+          {overview.udsCore.comparison === "behind" ? <ReleaseNotes product="UDS Core" version={overview.udsCore.upstreamVersion} notes={overview.udsCore.upstreamReleaseNotes} /> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "open-pulls") {
+    const source = selection.unassignedOnly ? overview.unassignedPullRequests : overview.pullRequests;
+    const pulls = source.filter((pull) => !selection.repository || pull.repository === selection.repository);
+    const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
+    return (
+      <Drawer header={selection.unassignedOnly ? "Unassigned pull requests" : "Open pull requests"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><Button onClick={() => navigate("/pull-requests")} variant="primary">Open full pull request list</Button></SpaceBetween>}>
+        <SpaceBetween size="m">
+          <Box color="text-body-secondary">{selection.unassignedOnly ? `${pulls.length} non-Renovate changes have no assignee and are not already waiting for your review.` : `${pulls.length} changes are waiting for review${selection.repository ? ` in ${selection.repository}` : " across tracked repositories"}.`}</Box>
+          {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })} /> : null) : <EmptyState title={selection.unassignedOnly ? "No unassigned pull requests" : "No open pull requests"} detail="There are no changes waiting for review." />}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "renovate") {
+    const pulls = newestPulls(overview.renovate.pulls.filter((pull) =>
+      (!selection.repository || pull.repository === selection.repository) && (!selection.unassignedOnly || (
+        pull.assignees.length === 0 && !pull.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase())
+      )),
+    ));
+    const fullHref = selection.repository ? `/renovate?repository=${encodeURIComponent(selection.repository)}` : "/renovate";
+    const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
+    return (
+      <Drawer header={selection.unassignedOnly ? "Unassigned Renovate updates" : "Renovate updates"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><Button onClick={() => navigate(fullHref)} variant="primary">Open full Renovate list</Button></SpaceBetween>}>
+        <SpaceBetween size="m">
+          <Box color="text-body-secondary">{selection.unassignedOnly ? "Unassigned dependency updates that may need your attention." : <>Dependency updates created by Renovate from a <Box variant="code" display="inline">renovate/*</Box> source branch.</>} Newest opened first.</Box>
+          {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}>{pull.assignees.length ? <StatusIndicator type="in-progress">Assigned to {pull.assignees.map((assignee) => assignee.login).join(", ")}</StatusIndicator> : <StatusIndicator type="warning">Unassigned</StatusIndicator>}</DrawerPullOption> : null) : <EmptyState title="No Renovate updates need attention" detail="Open updates are assigned, waiting for your review, or complete." />}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "review-requests") {
+    const pulls = overview.reviewRequests.filter((pull) => !selection.repository || pull.repository === selection.repository);
+    const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
+    return (
+      <Drawer header="Review requests" footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><Button onClick={() => navigate("/pull-requests")} variant="primary">Open full pull request list</Button></SpaceBetween>}>
+        <SpaceBetween size="m">
+          <Box color="text-body-secondary">Pull requests where {overview.viewer.login} was specifically requested as a reviewer{selection.repository ? ` in ${selection.repository}` : ""}.</Box>
+          {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}><StatusIndicator type="info">Your review requested</StatusIndicator></DrawerPullOption> : null) : <EmptyState title="No reviews requested" detail="No open pull requests are waiting specifically for your review." />}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "issues") {
+    const repositories = overview.repositories.filter((repository) => !selection.repository || repository.fullName === selection.repository);
+    return (
+      <Drawer header="Repository issues">
+        <SpaceBetween size="m">
+          <Box color="text-body-secondary">Open issues by repository. Pull requests are excluded.</Box>
+          {repositories.map((repository) => <Container key={repository.id}><SpaceBetween size="xs"><Link href={`/repositories/${repository.fullName}`} onFollow={(event) => { event.preventDefault(); onSelect({ type: "repository", repository }); }}>{repository.fullName}</Link><Box variant="awsui-value-large">{repository.issueCount}</Box><Box color="text-body-secondary">open issues</Box></SpaceBetween></Container>)}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "pipelines") {
+    const repositories = overview.repositories.filter((repository) => !selection.repository || repository.fullName === selection.repository);
+    return (
+      <Drawer header="Pipeline status">
+        <SpaceBetween size="m">
+          <Box color="text-body-secondary">Latest pipeline result for each repository.</Box>
+          {repositories.map((repository) => <Container key={repository.id}><SpaceBetween size="xs"><Link href={`/repositories/${repository.fullName}`} onFollow={(event) => { event.preventDefault(); onSelect({ type: "repository", repository }); }}>{repository.fullName}</Link>{pipelineStatus(repository.pipeline)}<Box color="text-body-secondary">{repository.pipeline ? `${repository.pipeline.name} · ${relativeTime(repository.pipeline.updatedAt, overview.generatedAt)}` : "No pipeline data returned"}</Box>{repository.pipeline?.url ? <Button href={repository.pipeline.url} external variant="inline-link">Open run</Button> : null}</SpaceBetween></Container>)}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  return null;
+}
