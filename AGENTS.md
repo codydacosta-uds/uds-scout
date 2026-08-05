@@ -108,6 +108,8 @@ The top navigation keeps a browser-local countdown labeled `Next SONIC maintenan
 - Refresh GitHub data every 60 seconds and on page reload
 - Preserve the in-memory and client-side caching that prevents unnecessary requests and route-transition flashing
 - Bind local servers to `127.0.0.1`; development uses port `3001`
+- Docker may bind to `0.0.0.0` inside the container only when the documented host publish remains `127.0.0.1:3001:3001`
+- Supply tokens to containers only at runtime, never through image build arguments or committed files; persist non-secret workspace settings under `/data`
 - Keep custom CSS focused on theme tokens, layout refinements, and attention states
 
 ## Repository scope
@@ -149,6 +151,7 @@ Renovate updates must be authored by Renovate and use a `renovate/*` source bran
 - `scripts/d2d-test-lab-runner` — forced-command remote allowlist installed on Zeus
 - `app/globals.css` — neutral dark theme and focused custom styles
 - `app/layout.tsx` — global Cloudscape visual-refresh and dark-mode classes
+- `Dockerfile` and `.dockerignore` — non-root standalone production image and build-context exclusions
 
 ## Change discipline
 

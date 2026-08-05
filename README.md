@@ -44,6 +44,47 @@ Port 3001 is used because port 3000 is occupied locally.
 
 Alternatively, copy `.env.local.example` to `.env.local` and enter the token there. Never commit `.env.local`.
 
+## Run with Docker
+
+Build the production image:
+
+```bash
+docker build -t d2d-operations .
+```
+
+Store the runtime token outside the repository in a local file:
+
+```bash
+mkdir -p "$HOME/.config/d2d-operations"
+cat > "$HOME/.config/d2d-operations/container.env" <<'EOF'
+GITHUB_TOKEN=github_pat_replace_with_your_token
+# Optional GitLab integration:
+# GITLAB_TOKEN=replace_with_your_token
+# GITLAB_URL=https://gitlab.example.com
+EOF
+chmod 600 "$HOME/.config/d2d-operations/container.env"
+```
+
+Start the container with its port restricted to the local machine:
+
+```bash
+docker run --detach \
+  --name d2d-operations \
+  --restart unless-stopped \
+  --env-file "$HOME/.config/d2d-operations/container.env" \
+  --publish 127.0.0.1:3001:3001 \
+  --mount source=d2d-operations-data,target=/data \
+  d2d-operations
+```
+
+Open [http://127.0.0.1:3001](http://127.0.0.1:3001) and complete repository selection. The named volume persists the non-secret workspace selection across container replacements. Tokens remain in the container environment and are not written to that volume or returned to the browser.
+
+Use the explicit `127.0.0.1` host binding shown above. Publishing `3001:3001` without a host address exposes the application to other network interfaces. Stop and remove the container with:
+
+```bash
+docker rm --force d2d-operations
+```
+
 ## Current MVP
 
 - Explicit operator-selected managed repositories with no default tracked repository list
