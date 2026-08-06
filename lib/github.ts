@@ -3,11 +3,14 @@ import "server-only";
 const API_ROOT = "https://api.github.com";
 const API_VERSION = "2022-11-28";
 const CACHE_TTL = 60_000;
+const USER_AGENT = "uds-scout-local";
 
 type CacheEntry = { expires: number; value: unknown };
 const responseCache = new Map<string, CacheEntry>();
 const contributorCountCache = new Map<string, CacheEntry>();
-const runtimeState = globalThis as typeof globalThis & { __d2dGitHubToken?: string };
+const inFlightRequests = new Map<string, Promise<unknown>>();
+let cacheGeneration = 0;
+const runtimeState = globalThis as typeof globalThis & { __d2dGitHubToken?: string; __d2dGitHubViewer?: string };
 
 export class GitHubApiError extends Error {
   constructor(
@@ -25,14 +28,27 @@ export function githubTokenStatus() {
   return { configured: false, source: null };
 }
 
-export function setSessionGitHubToken(value: string) {
+export function setSessionGitHubToken(value: string, viewer?: string) {
   runtimeState.__d2dGitHubToken = value;
+  runtimeState.__d2dGitHubViewer = viewer;
   clearGitHubCache();
 }
 
+export function clearSessionGitHubToken() {
+  delete runtimeState.__d2dGitHubToken;
+  delete runtimeState.__d2dGitHubViewer;
+  clearGitHubCache();
+}
+
+export function currentGitHubViewer() {
+  return runtimeState.__d2dGitHubViewer ?? null;
+}
+
 export function clearGitHubCache() {
+  cacheGeneration += 1;
   responseCache.clear();
   contributorCountCache.clear();
+  inFlightRequests.clear();
 }
 
 function token() {
@@ -52,7 +68,7 @@ export async function validateGitHubToken(value: string) {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${value}`,
       "X-GitHub-Api-Version": API_VERSION,
-      "User-Agent": "gh-dash-local",
+      "User-Agent": USER_AGENT,
     },
     cache: "no-store",
   });
@@ -69,32 +85,95 @@ export async function validateGitHubToken(value: string) {
 
 export async function githubRequest<T>(path: string, ttl = CACHE_TTL): Promise<T> {
   const cached = responseCache.get(path);
-  if (cached && cached.expires > Date.now()) return cached.value as T;
-
-  const response = await fetch(`${API_ROOT}${path}`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token()}`,
-      "X-GitHub-Api-Version": API_VERSION,
-      "User-Agent": "gh-dash-local",
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const body = (await response.json()) as { message?: string };
-      detail = body.message ?? detail;
-    } catch {
-      // Keep the HTTP status text when GitHub does not return JSON.
+  if (cached && cached.expires > Date.now()) {
+    if (path === "/user" && cached.value && typeof cached.value === "object" && "login" in cached.value && typeof (cached.value as { login?: unknown }).login === "string") {
+      runtimeState.__d2dGitHubViewer = (cached.value as { login: string }).login;
     }
-    throw new GitHubApiError(`GitHub API: ${detail}`, response.status);
+    return cached.value as T;
   }
+  if (cached) responseCache.delete(path);
 
-  const value = (await response.json()) as T;
-  responseCache.set(path, { value, expires: Date.now() + ttl });
-  return value;
+  const pending = inFlightRequests.get(path);
+  if (pending) return await pending as T;
+
+  const generation = cacheGeneration;
+  const request = (async () => {
+    const response = await fetch(`${API_ROOT}${path}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token()}`,
+        "X-GitHub-Api-Version": API_VERSION,
+        "User-Agent": USER_AGENT,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const body = (await response.json()) as { message?: string };
+        detail = body.message ?? detail;
+      } catch {
+        // Keep the HTTP status text when GitHub does not return JSON.
+      }
+      throw new GitHubApiError(`GitHub API: ${detail}`, response.status);
+    }
+
+    const value = (await response.json()) as T;
+    if (path === "/user" && value && typeof value === "object" && "login" in value && typeof (value as { login?: unknown }).login === "string") {
+      runtimeState.__d2dGitHubViewer = (value as { login: string }).login;
+    }
+    if (generation === cacheGeneration) responseCache.set(path, { value, expires: Date.now() + ttl });
+    return value;
+  })();
+
+  inFlightRequests.set(path, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightRequests.get(path) === request) inFlightRequests.delete(path);
+  }
+}
+
+export async function githubGraphQL<T>(query: string, variables: Record<string, unknown>, ttl = CACHE_TTL): Promise<T> {
+  const key = `graphql:${query}:${JSON.stringify(variables)}`;
+  const cached = responseCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value as T;
+  if (cached) responseCache.delete(key);
+
+  const pending = inFlightRequests.get(key);
+  if (pending) return await pending as T;
+
+  const generation = cacheGeneration;
+  const request = (async () => {
+    const response = await fetch(`${API_ROOT}/graphql`, {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token()}`,
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+      },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+    });
+
+    const body = await response.json() as { data?: T; errors?: { message: string }[] };
+    if (!response.ok || !body.data || body.errors?.length) {
+      const detail = body.errors?.map((error) => error.message).join("; ") || response.statusText;
+      throw new GitHubApiError(`GitHub GraphQL API: ${detail}`, response.status || 500);
+    }
+
+    if (generation === cacheGeneration) responseCache.set(key, { value: body.data, expires: Date.now() + ttl });
+    return body.data;
+  })();
+
+  inFlightRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlightRequests.get(key) === request) inFlightRequests.delete(key);
+  }
 }
 
 export async function githubAllPages<T>(path: string, maxPages = 20): Promise<T[]> {
@@ -119,7 +198,7 @@ export async function githubContributorCount(repository: string, ttl = 30 * 60_0
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token()}`,
       "X-GitHub-Api-Version": API_VERSION,
-      "User-Agent": "gh-dash-local",
+      "User-Agent": USER_AGENT,
     },
     cache: "no-store",
   });
@@ -212,6 +291,13 @@ export type RawRun = {
   updated_at: string;
   actor: { login: string; avatar_url: string } | null;
   head_branch: string | null;
+  head_sha: string;
+  head_commit?: {
+    id: string;
+    message: string;
+    timestamp: string;
+    author: { name: string; email: string; username: string | null } | null;
+  } | null;
 };
 
 export function presentRepo(repo: RawRepo) {
@@ -236,6 +322,7 @@ export function presentRepo(repo: RawRepo) {
 }
 
 export function presentPull(pull: RawPull) {
+  const ignored = pull.labels?.some((label) => label.name.toLowerCase() === "stale") ?? false;
   return {
     id: pull.id,
     number: pull.number,
@@ -256,6 +343,26 @@ export function presentPull(pull: RawPull) {
     summary: pull.body?.replace(/[#*_`>\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 240) || null,
     labels: pull.labels?.map((label) => ({ name: label.name, color: label.color })) ?? [],
     assignees: pull.assignees?.map((assignee) => ({ login: assignee.login, avatar: assignee.avatar_url ?? null })) ?? [],
-    requestedReviewers: pull.requested_reviewers?.map((reviewer) => ({ login: reviewer.login, avatar: reviewer.avatar_url ?? null })) ?? [],
+    requestedReviewers: pull.requested_reviewers?.map((reviewer) => ({ login: reviewer.login, avatar: reviewer.avatar_url ?? null, kind: "user" as const })) ?? [],
+    workflow: {
+      state: "no-action" as const,
+      progress: pull.draft ? "draft" as const : "unknown" as const,
+      label: ignored ? "No action required" : pull.draft ? "Draft" : "Unable to verify",
+      reason: ignored ? "The stale label removes this pull request from operational attention." : pull.draft ? "The pull request is still a draft." : "Detailed review, check, and merge state is unavailable.",
+      blockers: [],
+      waitingOn: [],
+      approvals: { count: 0, required: null, reviewers: [], changesRequestedBy: [], decision: null, lastApprovedAt: null },
+      checks: { requiredKnown: false, total: 0, required: 0, passed: 0, pending: 0, failing: 0, failingNames: [], summary: "Unable to verify required checks" },
+      mergeable: "UNKNOWN" as const,
+      mergeStateStatus: "UNKNOWN",
+      headSha: null,
+      assignedToViewer: false,
+      authoredByViewer: false,
+      reviewRequestedFromViewer: false,
+      automation: false,
+      renovate: false,
+      elevatedAutomation: false,
+      ignored,
+    },
   };
 }

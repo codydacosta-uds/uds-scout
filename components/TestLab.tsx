@@ -72,6 +72,10 @@ function sessionStatus(session: TestLabSession) {
   return <StatusIndicator type="pending">Ready for a test</StatusIndicator>;
 }
 
+function sessionIsActive(state: TestLabSession["state"], bundleArtifact: string | null) {
+  return ["prepared", "deploying", "deployed", "cleaning"].includes(state) || (state === "failed" && Boolean(bundleArtifact));
+}
+
 function shortSha(sha: string | null) {
   return sha ? sha.slice(0, 8) : "—";
 }
@@ -152,7 +156,7 @@ export function TestLab() {
         setCatalog(nextCatalog);
         setSession(nextSession);
         const sessionRepository = nextSession.repository && nextCatalog.repositories.some((item) => item.fullName === nextSession.repository) ? nextSession.repository : null;
-        const remoteSessionActive = ["prepared", "deploying", "deployed", "cleaning"].includes(nextSession.state) || (nextSession.state === "failed" && Boolean(nextSession.bundleArtifact));
+        const remoteSessionActive = sessionIsActive(nextSession.state, nextSession.bundleArtifact);
         const launchRepositoryAvailable = Boolean(requestedLaunch && nextCatalog.repositories.some((item) => item.fullName.toLowerCase() === requestedLaunch.repository.toLowerCase()));
         const launchMatchesActiveSession = Boolean(requestedLaunch && remoteSessionActive && nextSession.repository?.toLowerCase() === requestedLaunch.repository.toLowerCase() && nextSession.branch === requestedLaunch.branch);
         if (requestedLaunch && !launchRepositoryAvailable) {
@@ -178,14 +182,38 @@ export function TestLab() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      refreshSession().catch((reason) => setError(reason.message));
-    }, 4_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    const interval = sessionIsActive(session.state, session.bundleArtifact) ? 4_000 : 30_000;
+    let timer: number | null = null;
+    let requestInFlight = false;
+    const poll = async () => {
+      if (requestInFlight || document.visibilityState !== "visible") return;
+      requestInFlight = true;
+      try {
+        await refreshSession();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Test Lab status could not be refreshed.");
+      } finally {
+        requestInFlight = false;
+      }
+    };
+    const startTimer = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = document.visibilityState === "visible" ? window.setInterval(poll, interval) : null;
+    };
+    const handleVisibilityChange = () => {
+      startTimer();
+      if (document.visibilityState === "visible") void poll();
+    };
+    startTimer();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [session.bundleArtifact, session.state]);
 
   useEffect(() => {
-    const remoteSessionActive = ["prepared", "deploying", "deployed", "cleaning"].includes(session.state) || (session.state === "failed" && Boolean(session.bundleArtifact));
+    const remoteSessionActive = sessionIsActive(session.state, session.bundleArtifact);
     if (!remoteSessionActive || !session.repository || !catalog?.repositories.some((item) => item.fullName === session.repository)) return;
     if (repository !== session.repository) setRepository(session.repository);
     if (session.flavor && flavor !== session.flavor) setFlavor(session.flavor);
@@ -228,7 +256,11 @@ export function TestLab() {
   useEffect(() => {
     if (!imagesOpen) return;
     let active = true;
+    let requestInFlight = false;
+    let timer: number | null = null;
     const loadImages = async (showLoading: boolean) => {
+      if (requestInFlight || document.visibilityState !== "visible") return;
+      requestInFlight = true;
       if (showLoading) setImageLoading(true);
       try {
         const response = await fetch("/api/test-lab?images=true", { cache: "no-store" });
@@ -241,14 +273,25 @@ export function TestLab() {
       } catch (reason) {
         if (active) setImageError(reason instanceof Error ? reason.message : "Container images could not be loaded.");
       } finally {
+        requestInFlight = false;
         if (active && showLoading) setImageLoading(false);
       }
     };
-    loadImages(true);
-    const timer = window.setInterval(() => loadImages(false), 4_000);
+    const startTimer = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = document.visibilityState === "visible" ? window.setInterval(() => void loadImages(false), 4_000) : null;
+    };
+    const handleVisibilityChange = () => {
+      startTimer();
+      if (document.visibilityState === "visible") void loadImages(false);
+    };
+    void loadImages(true);
+    startTimer();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [imagesOpen]);
 
@@ -278,7 +321,7 @@ export function TestLab() {
 
   useEffect(() => {
     if (!launchRequest?.confirm || launchHandled || !plan || plan.repository.toLowerCase() !== launchRequest.repository.toLowerCase() || plan.branch !== launchRequest.branch) return;
-    const remoteSessionActive = ["prepared", "deploying", "deployed", "cleaning"].includes(session.state) || (session.state === "failed" && Boolean(session.bundleArtifact));
+    const remoteSessionActive = sessionIsActive(session.state, session.bundleArtifact);
     if (plan.flavors.length && !plan.flavors.includes(flavor)) return;
     if (remoteSessionActive) {
       setLaunchWarning(`Remove the active ${session.repository ?? "Test Lab"} deployment before starting this pull request test.`);
@@ -329,7 +372,7 @@ export function TestLab() {
   const branchOption = branchOptions.find((option) => option.value === branch) ?? null;
   const flavorOptions = (plan?.flavors ?? []).map((item) => ({ label: item, value: item }));
   const flavorOption = flavorOptions.find((option) => option.value === flavor) ?? null;
-  const sessionActive = ["prepared", "deploying", "deployed", "cleaning"].includes(session.state) || (session.state === "failed" && Boolean(session.bundleArtifact));
+  const sessionActive = sessionIsActive(session.state, session.bundleArtifact);
   const selectedWorkflow = plan ? (workflow === "deploy-only" ? plan.deployOnly : plan.workflow) : null;
   const launchMatchesSelection = Boolean(launchRequest && launchRequest.repository.toLowerCase() === repository.toLowerCase() && launchRequest.branch === branch);
   const flavorReady = Boolean(plan && (!plan.flavors.length || plan.flavors.includes(flavor)));

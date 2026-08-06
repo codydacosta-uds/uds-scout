@@ -1,10 +1,10 @@
-# D2D Operations — Agent Guide
+# UDS Scout — Agent Guide
 
 This file defines the product and implementation conventions for AI coding agents working in this repository. Preserve these decisions unless the user explicitly requests a change.
 
 ## Product intent
 
-D2D Operations is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of GitHub repositories.
+UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of GitHub repositories.
 
 Prioritize information that helps an engineer decide what to do next:
 
@@ -93,7 +93,7 @@ Use concise, direct engineering language. Lead with state and action:
 
 Status wording should be consistent across overview cards, tables, repository pages, and drawers. Pull request lists must identify the author. When comparing UDS Core versions, ignore the local `-unicorn` suffix and upstream `v` prefix, compare major/minor/patch, and link differing upstream versions to their GitHub release. Show the latest UDS Core or UDS Common release notes in version drawers only when a tracked version is behind that latest release; do not show release notes for current, ahead, unknown, or merely missing configurations.
 
-The product name is always **D2D Operations**.
+The product name is always **UDS Scout**.
 
 The top navigation keeps a browser-local countdown labeled `Next SONIC maintenance window` visible across all pages, with only `SONIC` highlighted in yellow, anchored to August 11, 2026 at 5:00 PM. At the target time, show the window as active and do not begin the next 14-day countdown until 11:59 PM that Tuesday.
 
@@ -104,6 +104,7 @@ The top navigation keeps a browser-local countdown labeled `Next SONIC maintenan
 - Server-only GitHub REST API access using `GITHUB_TOKEN`
 - Never send the GitHub token to browser code or API responses
 - Read-only GitHub behavior: no mutations, write operations, or implicit actions
+- Gitlab mutations are limited to the dedicated ticket composer and projects explicitly selected from the authenticated Gitlab user’s accessible-project catalog. Persist only non-secret project paths, require exactly one server-allowlisted target per batch, revalidate Developer access and any operator-selected project labels before every submission, stage drafts locally, require a full batch review and explicit confirmation, enforce a maximum of 20 issues on the server, and report each creation result without automatic retries. Do not add other Gitlab writes implicitly.
 - No database, authentication system, webhooks, or workers unless explicitly requested
 - Refresh GitHub data every 60 seconds and on page reload
 - Preserve the in-memory and client-side caching that prevents unnecessary requests and route-transition flashing
@@ -135,6 +136,7 @@ Renovate updates must be authored by Renovate and use a `renovate/*` source bran
 - `components/operations-ui.tsx` — shared operational status, metric, identity, and formatting components
 - `components/operations-types.ts` — shared console navigation and drawer selection contracts
 - `components/ReleaseNotes.tsx` — safe GitHub release-note Markdown presentation
+- `components/GitLabTicketComposer.tsx` and `app/api/gitlab/tickets/route.ts` — staged, explicitly confirmed GitLab issue creation
 - `components/types.ts` — shared client data contracts
 - `lib/github.ts` — GitHub client, aggregation, and server cache
 - `lib/tracked-repositories.ts` — explicit repository configuration
@@ -158,6 +160,8 @@ Renovate updates must be authored by Renovate and use a `renovate/*` source bran
 Before adding a new pattern, check whether an existing Cloudscape component or established drawer/table/card pattern can be reused. Extend incrementally rather than redesigning unrelated areas.
 
 When changing data contracts, update shared types and all relevant overview, repository, and drawer views together. Preserve loading, empty, partial-error, and stale-data behavior.
+
+For every visual change, audit the equivalent pattern across overview cards, repository pages, tables, drawers, modals, desktop, and narrow layouts. Reuse shared components and color tokens so button hierarchy, links, status placement, spacing, alignment, hover, focus, loading, and empty states remain uniform. Fix adjacent instances in the same change rather than waiting for a second report.
 
 After implementation, run:
 

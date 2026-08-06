@@ -18,7 +18,7 @@ FROM base AS runner
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3001 \
-    D2D_SETTINGS_PATH=/data/settings.json
+    UDS_SCOUT_SETTINGS_PATH=/data/settings.json
 
 RUN apk add --no-cache openssh-client \
     && addgroup --system --gid 1001 nodejs \

@@ -86,7 +86,7 @@ function systemFor(file: string, scope: string) {
     "asg-scheduled-actions": "Compute scheduling",
     "uds-config": "Platform configuration",
     "build-executor": "Build executor",
-    "gitlab-runner": "GitLab runners",
+    "gitlab-runner": "Gitlab runners",
   };
   return systems[base] ?? title(base);
 }
@@ -101,7 +101,7 @@ function plainSummary(kind: InfrastructureKind, type: string, name: string, syst
   if (kind === "data") return `References an existing ${humanType(type).toLowerCase()} used by ${system}. This repository reads it but does not create it.`;
   if (kind === "module") {
     if (/subnet.addrs|cidr.subnets/.test(value)) return `Calculates the network address ranges used to divide the ${system.toLowerCase()} into subnets.`;
-    if (/glr.vpc|gitlab.runner.*vpc/.test(value)) return "Deploys an isolated network for short-lived GitLab runner compute.";
+    if (/glr.vpc|gitlab.runner.*vpc/.test(value)) return "Deploys an isolated network for short-lived Gitlab runner compute.";
     if (/\bvpc\b/.test(value)) return "Deploys the primary network, its public and private subnets, database subnets, routing, and flow logging.";
     if (/\beks\b/.test(value)) return "Deploys the Kubernetes control plane and worker-node foundation that hosts the software factory services.";
     if (/_db\b|rds/.test(value)) return `Deploys a managed relational database for ${system}.`;
@@ -110,7 +110,7 @@ function plainSummary(kind: InfrastructureKind, type: string, name: string, syst
     if (/irsa/.test(value)) return `Grants ${system} workloads narrowly scoped AWS permissions through their Kubernetes service accounts.`;
     if (/volume.snapshot/.test(value)) return `Configures recurring volume backups for ${system}.`;
     if (/bastion/.test(value)) return "Deploys an administrative access host for securely reaching private infrastructure.";
-    if (/fleeting.runner/.test(value)) return "Deploys an automatically scaled pool of short-lived GitLab build runners.";
+    if (/fleeting.runner/.test(value)) return "Deploys an automatically scaled pool of short-lived Gitlab build runners.";
     if (/zarf/.test(value)) return "Connects package deployment tooling to the Kubernetes cluster and its supporting storage.";
     return `Uses a reusable module to manage the ${label} component for ${system}.`;
   }
@@ -122,7 +122,7 @@ function plainSummary(kind: InfrastructureKind, type: string, name: string, syst
   if (/kms_key|kms_alias/.test(type)) return `Provides an identifiable encryption key for data managed by ${system}.`;
   if (/s3_bucket_lifecycle/.test(type)) return `Controls retention and cleanup for object storage used by ${system}.`;
   if (/s3_bucket/.test(type)) return `Creates object storage used by ${system}.`;
-  if (/elasticache_replication_group/.test(type)) return "Deploys a highly available Redis cache used by GitLab.";
+  if (/elasticache_replication_group/.test(type)) return "Deploys a highly available Redis cache used by Gitlab.";
   if (/autoscaling_schedule/.test(type)) return `Schedules when ${system} compute capacity should increase or decrease.`;
   if (/autoscaling_group/.test(type)) return `Maintains the requested amount of compute capacity for ${system}.`;
   if (/launch_template/.test(type)) return `Defines how new ${system} compute instances are configured when launched.`;
@@ -467,7 +467,7 @@ export async function analyzeTerraform({
   const databaseCount = rootNodes.filter((node) => node.kind === "module" && /_db$/.test(node.name)).length;
   const bucketCount = rootNodes.filter((node) => node.kind === "module" && /s3_bucket/.test(node.name)).length;
   const vpcCount = rootNodes.filter((node) => node.kind === "module" && /(^|_)vpc$/.test(node.name)).length;
-  const summary = `This stack builds an AWS-hosted software factory around an EKS cluster and ${vpcCount || 2} network environments. It provisions ${databaseCount} service databases, ${bucketCount} dedicated object-storage modules, encrypted secrets and backups, administrative and build compute, GitLab runner capacity, and observability services. Existing account identity, images, certificates, licenses, and availability-zone information are referenced rather than created.`;
+  const summary = `This stack builds an AWS-hosted software factory around an EKS cluster and ${vpcCount || 2} network environments. It provisions ${databaseCount} service databases, ${bucketCount} dedicated object-storage modules, encrypted secrets and backups, administrative and build compute, Gitlab runner capacity, and observability services. Existing account identity, images, certificates, licenses, and availability-zone information are referenced rather than created.`;
 
   const commonTags = [
     { name: "RootTFModule", value: "swf" },

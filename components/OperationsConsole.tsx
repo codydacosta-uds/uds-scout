@@ -30,13 +30,14 @@ import TopNavigation from "@cloudscape-design/components/top-navigation";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SONIC_REPOSITORY } from "@/lib/repository-constants";
+import { GitLabTicketComposer } from "./GitLabTicketComposer";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
 import { OperationsDrawer } from "./OperationsDrawer";
 import { OverviewPage } from "./OverviewPage";
 import { TestLab } from "./TestLab";
 import type { InfrastructureExplorerData } from "./infrastructure-types";
 import type { ConsoleView, DrawerSelection } from "./operations-types";
-import { canTestPullRequest, EmptyState, MetricCard, newestPulls, pipelineFailed, pipelineStatus, PullAuthor, PullPeople, pullRequestTestLabHref, relativeTime, repositoryHealth, runStatus, TestInLabButton, udsCommonStatus, UdsCoreVersion } from "./operations-ui";
+import { canTestPullRequest, EmptyState, MetricCard, newestPulls, pipelineFailed, pullWorkflowStatus, PullAuthor, PullPeople, pullRequestTestLabHref, relativeTime, repositoryHealth, runStatus, TestInLabButton, udsCommonStatus, UdsCoreVersion } from "./operations-ui";
 import type { GitLabWorkItems, OrganizationRepository, Overview, PullRequest, Repository, RepositoryCatalog, RepositoryContributorCounts, RepositoryWorkspace } from "./types";
 
 type Props = {
@@ -50,6 +51,45 @@ let cachedRepositoryCatalog: RepositoryCatalog | null = null;
 let cachedRepositoryContributorCounts: RepositoryContributorCounts | null = null;
 let cachedInfrastructure: InfrastructureExplorerData | null = null;
 const cachedWorkspaces = new Map<string, RepositoryWorkspace>();
+const OVERVIEW_REQUEST_TIMEOUT_MS = 20_000;
+const INITIAL_LOAD_WARNING_KEY = "uds-scout:show-initial-load-warning";
+
+function sessionPreferenceKey(viewer: string, preference: string) {
+  return `uds-scout:${viewer.toLowerCase()}:${preference}`;
+}
+
+function useSessionPreference<T>(key: string, fallback: T, validate: (value: unknown) => value is T, preferFallback = false) {
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined" || preferFallback) return fallback;
+    try {
+      const stored = window.sessionStorage.getItem(key);
+      if (stored === null) return fallback;
+      const parsed = JSON.parse(stored) as unknown;
+      return validate(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Keep the in-memory preference when session storage is unavailable.
+    }
+  }, [key, value]);
+
+  return [value, setValue] as const;
+}
+
+const isString = (value: unknown): value is string => typeof value === "string";
+const isPositiveInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
+
+const PBME_REPOSITORIES = [
+  { name: "uds-core", url: "https://gitlab.sonic.mil/project-blue/defense-unicorns/shipmates/pbme/uds-core" },
+  { name: "terraform-keycloak", url: "https://gitlab.sonic.mil/project-blue/defense-unicorns/shipmates/pbme-atmos/pbme-iac-modules/terraform-keycloak" },
+  { name: "mission-inf", url: "https://gitlab.sonic.mil/project-blue/defense-unicorns/shipmates/pbme/mission-inf" },
+] as const;
 
 export default function OperationsConsole({ view, repository: repositoryName }: Props) {
   const router = useRouter();
@@ -61,11 +101,13 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const [infrastructure, setInfrastructure] = useState<InfrastructureExplorerData | null>(() => cachedInfrastructure);
   const [loading, setLoading] = useState(!cachedOverview);
   const [gitLabLoading, setGitLabLoading] = useState(view === "overview" && !cachedGitLabWorkItems);
-  const [repositoryCatalogLoading, setRepositoryCatalogLoading] = useState((view === "overview" || view === "uds-packages") && !cachedRepositoryCatalog);
+  const [repositoryCatalogLoading, setRepositoryCatalogLoading] = useState(view === "uds-packages" && !cachedRepositoryCatalog);
   const [repositoryContributorsLoading, setRepositoryContributorsLoading] = useState(view === "uds-packages" && !cachedRepositoryContributorCounts);
   const [workspaceLoading, setWorkspaceLoading] = useState(view === "repository" && !repositoryName ? true : view === "repository" && !cachedWorkspaces.has(repositoryName ?? ""));
   const [infrastructureLoading, setInfrastructureLoading] = useState(view === "infrastructure" && !cachedInfrastructure);
   const [error, setError] = useState<string | null>(null);
+  const [errorDismissed, setErrorDismissed] = useState(false);
+  const [initialLoadWarningVisible, setInitialLoadWarningVisible] = useState(false);
   const [gitLabError, setGitLabError] = useState<string | null>(null);
   const [repositoryCatalogError, setRepositoryCatalogError] = useState<string | null>(null);
   const [repositoryContributorsError, setRepositoryContributorsError] = useState<string | null>(null);
@@ -81,7 +123,21 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   };
 
   useEffect(() => {
+    try {
+      setInitialLoadWarningVisible(window.sessionStorage.getItem(INITIAL_LOAD_WARNING_KEY) === "true");
+    } catch {
+      setInitialLoadWarningVisible(false);
+    }
+  }, []);
+
+  useEffect(() => {
     const controller = new AbortController();
+    let active = true;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, OVERVIEW_REQUEST_TIMEOUT_MS);
     setLoading(true);
     setError(null);
     fetch(`/api/github/overview?refresh=${refreshKey}`, { signal: controller.signal })
@@ -91,14 +147,24 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         return data as Overview;
       })
       .then((data) => {
+        if (!active) return;
         cachedOverview = data;
         setOverview(data);
       })
       .catch((reason) => {
+        if (!active) return;
         if (reason.name !== "AbortError") setError(reason.message);
+        else if (timedOut) setError("GitHub operational data did not respond within 20 seconds.");
       })
-      .finally(() => setLoading(false));
-    return () => controller.abort();
+      .finally(() => {
+        window.clearTimeout(timeout);
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
   }, [refreshKey]);
 
   useEffect(() => {
@@ -109,7 +175,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     fetch(`/api/gitlab/work-items?refresh=${refreshKey}`, { signal: controller.signal })
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "GitLab work items could not be loaded.");
+        if (!response.ok) throw new Error(data.error ?? "Gitlab work items could not be loaded.");
         return data as GitLabWorkItems;
       })
       .then((data) => {
@@ -124,7 +190,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   }, [view, refreshKey, overview?.capabilities.gitlab]);
 
   useEffect(() => {
-    if (view !== "overview" && view !== "uds-packages") return;
+    if (view !== "uds-packages") return;
     const controller = new AbortController();
     setRepositoryCatalogLoading(true);
     setRepositoryCatalogError(null);
@@ -217,16 +283,30 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   }, [view, refreshKey]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setRefreshKey((value) => value + 1), 60_000);
-    return () => window.clearInterval(timer);
+    if (!error) setErrorDismissed(false);
+  }, [error]);
+
+  useEffect(() => {
+    let lastAutomaticRefresh = Date.now();
+    const refreshIfVisibleAndDue = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastAutomaticRefresh < 60_000) return;
+      lastAutomaticRefresh = Date.now();
+      setRefreshKey((value) => value + 1);
+    };
+    const timer = window.setInterval(refreshIfVisibleAndDue, 60_000);
+    document.addEventListener("visibilitychange", refreshIfVisibleAndDue);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshIfVisibleAndDue);
+    };
   }, []);
 
-  const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : view === "test-lab" ? "/test-lab" : `/repositories/${repositoryName ?? ""}`;
+  const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "gitlab-tickets" ? "/gitlab/tickets" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : view === "test-lab" ? "/test-lab" : `/repositories/${repositoryName ?? ""}`;
   const repositoryItems = (overview?.repositories ?? []).map((repository) => ({
     type: "link" as const,
     text: repository.name,
     href: `/repositories/${repository.fullName}`,
-    info: repository.pipeline?.conclusion === "failure" ? <Badge color="red">Action</Badge> : repository.reviewRequests ? <Badge color="grey">{repository.reviewRequests} review</Badge> : repository.unassignedRenovatePulls ? <Badge color="severity-medium">{repository.unassignedRenovatePulls}</Badge> : repository.udsCommon && repository.udsCommon.status !== "current" ? <Badge color="severity-medium">Common</Badge> : undefined,
+    info: repository.attention.level === "action-required" ? <Badge color={pipelineFailed(repository.pipeline?.conclusion) ? "red" : "severity-medium"}>Action</Badge> : repository.attention.level === "needs-attention" ? <Badge color="severity-medium">Attention</Badge> : undefined,
   }));
 
   const navigation = (
@@ -234,6 +314,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       activeHref={activeHref}
       header={{ text: "Repository operations", href: "/" }}
       onFollow={(event) => {
+        if (/^https?:\/\//.test(event.detail.href)) return;
         event.preventDefault();
         router.push(event.detail.href);
       }}
@@ -241,39 +322,76 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         { type: "link", text: "Operational overview", href: "/", icon: <Icon name="status-info" /> },
         { type: "link", text: "Open pull requests", href: "/pull-requests", icon: <Icon name="file" /> },
         { type: "link", text: "Renovate updates", href: "/renovate", icon: <Icon name="status-warning" />, info: overview?.renovate.total ? <Badge color="severity-medium">{overview.renovate.total}</Badge> : undefined },
+        ...(overview?.capabilities.gitlabTickets ? [{ type: "link" as const, text: "Create Gitlab tickets", href: "/gitlab/tickets", icon: <Icon name="add-plus" /> }] : []),
         ...(overview?.capabilities.sonic ? [{ type: "link" as const, text: "Infrastructure Explorer", href: "/infrastructure", icon: <Icon name="share" /> }] : []),
         ...(overview?.capabilities.testLab ? [{ type: "link" as const, text: "Test Lab", href: "/test-lab", icon: <Icon name="bug" /> }] : []),
         { type: "divider" },
         { type: "section", text: "Tracked repositories", items: repositoryItems },
+        ...(overview?.capabilities.sonic ? [
+          { type: "divider" as const },
+          {
+            type: "section" as const,
+            text: "PBME",
+            defaultExpanded: true,
+            items: PBME_REPOSITORIES.map((repository) => ({
+              type: "link" as const,
+              text: repository.name,
+              href: repository.url,
+              external: true,
+              externalIconAriaLabel: "Opens in a new tab",
+              icon: <Icon name="folder" />,
+            })),
+          },
+        ] : []),
         { type: "divider" },
-        { type: "link", text: "Workspace settings", href: "/settings", icon: <Icon name="settings" /> },
         { type: "link", text: "UDS Packages catalog", href: "/uds-packages", icon: <Icon name="folder" />, info: repositoryCatalog?.metrics.total ? <Badge color="grey">{repositoryCatalog.metrics.total}</Badge> : undefined },
+        { type: "link", text: "Workspace settings", href: "/settings", icon: <Icon name="settings" /> },
       ]}
     />
   );
 
-  const notifications = error ? (
-    <Flashbar items={[{
-      type: "error",
-      header: "Unable to load operational data",
-      content: error,
-      action: <Button onClick={() => setRefreshKey((value) => value + 1)}>Try again</Button>,
-      dismissible: true,
-      onDismiss: () => setError(null),
-    }]} />
+  const notifications = initialLoadWarningVisible || (error && !errorDismissed) ? (
+    <Flashbar items={[
+      ...(initialLoadWarningVisible ? [{
+        type: "warning" as const,
+        header: "Your first dashboard load may take a few moments",
+        content: "Scout is checking pull requests, pipelines, releases, and package health across your selected repositories. Workspaces with more repositories can take longer to load.",
+        dismissible: true,
+        onDismiss: () => {
+          setInitialLoadWarningVisible(false);
+          try {
+            window.sessionStorage.removeItem(INITIAL_LOAD_WARNING_KEY);
+          } catch {
+            // Keep the warning dismissed in memory when browser storage is unavailable.
+          }
+        },
+      }] : []),
+      ...(error && !errorDismissed ? [{
+        type: overview ? "warning" as const : "error" as const,
+        header: overview ? "Operational data could not be refreshed" : "Unable to load operational data",
+        content: overview ? `Showing data from the last successful refresh. ${error}` : error,
+        action: <Button onClick={() => { setErrorDismissed(false); setRefreshKey((value) => value + 1); }}>Try again</Button>,
+        dismissible: true,
+        onDismiss: () => setErrorDismissed(true),
+      }] : []),
+    ]} />
   ) : undefined;
 
   let content: React.ReactNode;
   if (loading && !overview) {
-    content = <Box textAlign="center" padding={{ vertical: "xxxl" }}><Spinner size="large" /></Box>;
+    content = <div className="operations-loading"><Spinner /><Box color="text-body-secondary">Loading Scout operations</Box></div>;
   } else if (!overview) {
     content = <EmptyState title="Operational data is unavailable" detail="Confirm the GitHub token is available and try again." />;
   } else if (view === "overview") {
-    content = <OverviewPage overview={overview} gitLabWorkItems={gitLabWorkItems} gitLabLoading={gitLabLoading} gitLabError={gitLabError} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <OverviewPage overview={overview} refreshing={loading} refreshError={error} gitLabWorkItems={gitLabWorkItems} gitLabLoading={gitLabLoading} gitLabError={gitLabError} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   } else if (view === "pull-requests") {
     content = <PullRequestsPage overview={overview} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   } else if (view === "renovate") {
     content = <RenovatePage overview={overview} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+  } else if (view === "gitlab-tickets") {
+    content = overview.capabilities.gitlabTickets
+      ? <GitLabTicketComposer />
+      : <EmptyState title="Gitlab ticket creation is unavailable" detail="Configure the Gitlab integration before creating tickets." />;
   } else if (view === "uds-packages") {
     content = <UdsPackagesCatalogPage overview={overview} catalog={repositoryCatalog} contributorCounts={repositoryContributorCounts} loading={repositoryCatalogLoading} contributorsLoading={repositoryContributorsLoading} error={repositoryCatalogError} contributorsError={repositoryContributorsError} />;
   } else if (view === "test-lab") {
@@ -286,7 +404,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         : <EmptyState title="Infrastructure analysis is unavailable" detail="Confirm the Terraform source is available and try again." />;
   } else {
     const repositoryOverview = overview.repositories.find((item) => item.fullName === repositoryName);
-    content = <RepositoryPage overview={overview} repository={repositoryOverview} workspace={workspace} loading={workspaceLoading} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <RepositoryPage overview={overview} repository={repositoryOverview} workspace={workspace} loading={workspaceLoading} error={error} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   }
 
   return (
@@ -301,7 +419,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       </div>
       <AppLayout
         headerSelector="#top-navigation"
-        contentType={view === "overview" || view === "infrastructure" || view === "test-lab" ? "dashboard" : "table"}
+        contentType={view === "overview" || view === "infrastructure" || view === "test-lab" ? "dashboard" : view === "gitlab-tickets" ? "form" : "table"}
         navigation={navigation}
         navigationOpen={navigationOpen}
         onNavigationChange={({ detail }) => setNavigationOpen(detail.open)}
@@ -352,6 +470,18 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         }}
         content={content}
       />
+      {!detailsOpen && !helpOpen ? (
+        <a
+          className="slack-taco"
+          href="https://grid-defense-unicorns.enterprise.slack.com/archives/C03RN5MH3KQ"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Give a taco in Slack"
+          title="Give a taco"
+        >
+          🌮
+        </a>
+      ) : null}
     </>
   );
 }
@@ -359,18 +489,23 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
 const helpForView: Record<ConsoleView, { title: string; summary: string; actions: string[] }> = {
   overview: {
     title: "Operational overview",
-    summary: "A prioritized view of work that may need action across the configured repositories and your SONIC GitLab board.",
-    actions: ["Use Customize cards to change the overview order for this browser.", "Use the top-navigation countdown for the next SONIC maintenance window.", "Review your assigned GitLab work items at the bottom of the page.", "Open a summary drawer to inspect an item without leaving the page.", "Use repository links for deeper local context and GitHub or GitLab links for native actions."],
+    summary: "A personalized workflow view across only the repositories selected for the connected GitHub user.",
+    actions: ["Start with My work today for items waiting on you, blocked, or approved but still open.", "Use Since yesterday for a grouped briefing rather than an activity feed.", "Open drawers to verify approvals, required checks, mergeability, and workflow failure context.", "Use Customize cards to change the overview order for this GitHub user in this browser.", "Review your assigned Gitlab work items at the bottom of the page when that integration is available."],
   },
   "pull-requests": {
     title: "Open pull requests",
-    summary: "A cross-repository review queue showing authors, assignments, requested reviewers, branches, and age.",
+    summary: "A selected-repository workflow queue showing authors, ownership, approvals, checks, blockers, and who each pull request is waiting on.",
     actions: ["Filter the queue by title, repository, author, or assignee.", "Use Test in lab on eligible package pull requests to prefill and validate the source branch.", "Open a pull request drawer before continuing to GitHub."],
   },
   renovate: {
     title: "Renovate updates",
     summary: "Dependency pull requests authored by Renovate from renovate/* branches, newest first.",
     actions: ["Filter by repository or update text.", "Review assignment and requested-review state before opening GitHub."],
+  },
+  "gitlab-tickets": {
+    title: "Create Gitlab tickets",
+    summary: "A controlled batch workflow for creating issues with optional project labels in one selected, server-validated Gitlab project.",
+    actions: ["Draft and stage tickets without writing to Gitlab.", "Review the complete batch before confirming creation.", "Inspect individual success or failure results after submission."],
   },
   "uds-packages": {
     title: "UDS Packages catalog",
@@ -407,7 +542,7 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
 
         <ExpandableSection headerText="Feature guide">
         <h4>Work queues</h4>
-        <p>The top navigation keeps a local-time countdown for the next SONIC maintenance window visible across all pages. It is anchored to Tuesday, August 11, 2026 at 5:00 PM and repeated every 14 days; it remains active until 11:59 PM. Pull request, Renovate, issue, pipeline, and assigned GitLab work item views prioritize work that can lead to an engineering action. Eligible package pull requests can open Test Lab with the repository and source branch preselected; the operator still confirms before execution. Drawers provide context, while GitHub and GitLab remain the destinations for native review and investigation.</p>
+        <p>The top navigation keeps a local-time countdown for the next SONIC maintenance window visible across all pages. It is anchored to Tuesday, August 11, 2026 at 5:00 PM and repeated every 14 days; it remains active until 11:59 PM. Pull request, Renovate, issue, pipeline, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Eligible package pull requests can open Test Lab with the repository and source branch preselected; the operator still confirms before execution. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
         <h4>Repository health and versions</h4>
         <p>Repository pages combine current work with latest pipeline health. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
         <h4>Infrastructure knowledge</h4>
@@ -420,7 +555,7 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
         <ol>
           <li>The browser renders the console and calls local Next.js API routes.</li>
           <li>Server routes call the GitHub REST API for the configured operational repositories and the explicitly requested uds-packages organization catalog. The GitHub token never enters browser data.</li>
-          <li>The GitLab server route uses the operator&apos;s token to load only open work assigned to that GitLab user. The token never enters browser data.</li>
+          <li>The Gitlab server route uses the operator&apos;s token to load only open work assigned to that Gitlab user. The token never enters browser data.</li>
           <li>Infrastructure analysis retrieves SONIC Terraform source through the server and parses resources and references locally.</li>
           <li>Test Lab sends validated repository, branch, package flavor, and workflow selections through a forced-command SSH key to the allowlisted runner on <code>zeus</code>. The same runner exposes one fixed read-only host-status action for overview telemetry.</li>
           <li>The runner uses its dedicated kubeconfig for the existing <code>k3d-uds</code> context and reports UDS logs and Kubernetes workloads back to the UI.</li>
@@ -429,9 +564,9 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
 
       <ExpandableSection headerText="Refresh and status behavior">
         <ul>
-          <li>GitHub operational data and assigned GitLab work refresh every 60 seconds and on page reload. Current content stays visible while fresh data loads in the background. Repository contributor totals use a longer server cache to avoid repeatedly scanning the full organization. Zeus host telemetry refreshes every 60 seconds while Test Lab is open. The refresh icon requests an immediate update.</li>
+          <li>GitHub operational data and assigned Gitlab work refresh every 60 seconds and on page reload. Current content stays visible while fresh data loads in the background. Repository contributor totals use a longer server cache to avoid repeatedly scanning the full organization. Zeus host telemetry refreshes every 60 seconds while Test Lab is open. The refresh icon requests an immediate update.</li>
           <li>In-memory and browser caching keep route transitions stable and avoid unnecessary requests.</li>
-          <li>Test Lab polls its durable remote session every four seconds. Closing or reloading the browser does not stop an active workflow.</li>
+          <li>Test Lab polls active workflows every four seconds and checks less often while idle. Polling pauses in hidden tabs; closing or reloading the browser does not stop an active workflow.</li>
           <li>Test Lab State shows building, deployment, testing, success, failure, and cleanup phases. UDS progress may originate from stderr without indicating failure.</li>
           <li>Red indicates an actual failure or unavailable dependency. Yellow indicates attention; blue indicates information or navigation.</li>
         </ul>
@@ -440,14 +575,14 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
         <ExpandableSection headerText="Safety and operator responsibilities">
           <ul>
             <li>Full operational monitoring remains limited to the tracked repository configuration. The UDS Packages catalog is read-only metadata; catalog-only repositories are not treated as managed. SONIC is excluded from Test Lab package deployment.</li>
-            <li>D2D Operations does not mutate GitHub or GitLab and does not expose API quota or credentials.</li>
+            <li>UDS Scout never mutates GitHub. Gitlab writes are limited to the staged, reviewed, and explicitly confirmed ticket batch workflow; API quota and credentials are never exposed.</li>
             <li>Test Lab cannot accept arbitrary commands or task names and cannot create, start, replace, or delete a cluster.</li>
             <li>A successful or partially deployed test bundle must be removed with <strong>Remove deployment</strong>. Cleanup uses the exact artifact created by that session.</li>
             <li>If the cluster or GitHub is unavailable, the affected action is blocked rather than silently using stale assumptions.</li>
           </ul>
         </ExpandableSection>
 
-        <Box color="text-body-secondary">D2D Operations is local-first. GitHub and GitLab access is read-only, and Test Lab is restricted to explicit deployment workflows.</Box>
+        <Box color="text-body-secondary">UDS Scout is local-first. GitHub access is read-only, Gitlab ticket creation requires explicit confirmation, and Test Lab is restricted to explicit deployment workflows.</Box>
       </SpaceBetween>
     </Drawer>
   );
@@ -497,10 +632,22 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp }: {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     if (!showCountdown) return;
+    let timer: number | null = null;
     const update = () => setNow(new Date());
-    update();
-    const timer = window.setInterval(update, 1_000);
-    return () => window.clearInterval(timer);
+    const syncTimer = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+      update();
+      if (document.visibilityState === "visible") timer = window.setInterval(update, 1_000);
+    };
+    syncTimer();
+    document.addEventListener("visibilitychange", syncTimer);
+    return () => {
+      if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", syncTimer);
+    };
   }, [showCountdown]);
 
   const schedule = now ? tuesdayWindow(now) : null;
@@ -524,7 +671,7 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp }: {
 
   return (
     <TopNavigation
-      identity={{ href: "/", title: "D2D Operations", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); onHome(); } }}
+      identity={{ href: "/", title: "UDS Scout", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); onHome(); } }}
       utilities={[
         ...(showCountdown ? [{ type: "button" as const, text: countdownUtilityText as unknown as string, iconName: "calendar" as const, ariaLabel: countdownLabel }] : []),
         { type: "button", text: "Help", iconName: "status-info", ariaLabel: "Open operator help", onClick: onHelp },
@@ -542,6 +689,14 @@ function catalogRepositoryStatus(item: OrganizationRepository, tracked: Reposito
 }
 
 type CatalogSortKey = "name" | "status" | "openItems" | "visibility" | "defaultBranch" | "language" | "contributors" | "pushedAt";
+type CatalogSort = { key: CatalogSortKey; descending: boolean };
+const CATALOG_SORT_KEYS: CatalogSortKey[] = ["name", "status", "openItems", "visibility", "defaultBranch", "language", "contributors", "pushedAt"];
+
+function isCatalogSort(value: unknown): value is CatalogSort {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CatalogSort>;
+  return typeof candidate.key === "string" && CATALOG_SORT_KEYS.includes(candidate.key as CatalogSortKey) && typeof candidate.descending === "boolean";
+}
 
 function UdsPackagesCatalogPage({ overview, catalog, contributorCounts, loading, contributorsLoading, error, contributorsError }: {
   overview: Overview;
@@ -552,9 +707,10 @@ function UdsPackagesCatalogPage({ overview, catalog, contributorCounts, loading,
   error: string | null;
   contributorsError: string | null;
 }) {
-  const [filter, setFilter] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [sort, setSort] = useState<{ key: CatalogSortKey; descending: boolean }>({ key: "name", descending: false });
+  const preferencePrefix = sessionPreferenceKey(overview.viewer.login, "uds-packages");
+  const [filter, setFilter] = useSessionPreference(`${preferencePrefix}:filter`, "", isString);
+  const [currentPage, setCurrentPage] = useSessionPreference(`${preferencePrefix}:page`, 1, isPositiveInteger);
+  const [sort, setSort] = useSessionPreference<CatalogSort>(`${preferencePrefix}:sort`, { key: "name", descending: false }, isCatalogSort);
   const trackedByName = new Map(overview.repositories.map((repository) => [repository.fullName.toLowerCase(), repository]));
   const contributorsByRepository = new Map(
     (contributorCounts?.contributors ?? []).map((item) => [item.repository.toLowerCase(), item.count]),
@@ -663,7 +819,7 @@ function UdsPackagesCatalogPage({ overview, catalog, contributorCounts, loading,
 }
 
 function PullRequestsPage({ overview, openDrawer, navigate }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void; navigate: (href: string) => void }) {
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "pull-requests:filter"), "", isString);
   const [selectedPulls, setSelectedPulls] = useState<Array<PullRequest & { repository: string }>>([]);
   const items = overview.pullRequests.filter((pull) => {
     const query = filter.toLowerCase();
@@ -674,6 +830,7 @@ function PullRequestsPage({ overview, openDrawer, navigate }: { overview: Overvi
   return (
     <ContentLayout header={<Header variant="h1" description="Open changes awaiting review across tracked repositories." counter={`(${overview.pullRequests.length})`}>Open pull requests</Header>}>
       <Table
+        className="selection-table-aligned"
         variant="container"
         trackBy="id"
         items={items}
@@ -690,7 +847,8 @@ function PullRequestsPage({ overview, openDrawer, navigate }: { overview: Overvi
           { id: "assignment", header: "Assignment", cell: (item) => <SpaceBetween size="xxs"><PullPeople people={item.assignees} />{item.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase()) ? <StatusIndicator type="info">Your review requested</StatusIndicator> : null}</SpaceBetween> },
           { id: "branch", header: "Source branch", cell: (item) => <Box variant="code">{item.head}</Box> },
           { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, overview.generatedAt) },
-          { id: "status", header: "Status", cell: (item) => item.draft ? <StatusIndicator type="pending">Draft</StatusIndicator> : <StatusIndicator type="success">Ready for review</StatusIndicator> },
+          { id: "status", header: "Workflow state", cell: pullWorkflowStatus },
+          { id: "why", header: "Why it is shown", cell: (item) => item.workflow.reason },
         ]}
         empty={<EmptyState title="No open pull requests" detail="There are no changes waiting for review." />}
       />
@@ -700,14 +858,15 @@ function PullRequestsPage({ overview, openDrawer, navigate }: { overview: Overvi
 
 function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void; navigate: (href: string) => void }) {
   const queryRepository = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("repository") ?? "all" : "all";
-  const [repository, setRepository] = useState(queryRepository);
-  const [filter, setFilter] = useState("");
+  const [repository, setRepository] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:repository"), queryRepository, isString, queryRepository !== "all");
+  const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:filter"), "", isString);
   const [selectedUpdates, setSelectedUpdates] = useState<Array<PullRequest & { repository: string }>>([]);
   const options = [{ label: `All repositories (${overview.renovate.total})`, value: "all" }, ...overview.repositories.map((item) => ({ label: `${item.fullName} (${item.renovatePulls})`, value: item.fullName }))];
   const selectedOption = options.find((option) => option.value === repository) ?? options[0];
+  const activeRepository = selectedOption.value;
   const items = newestPulls(overview.renovate.pulls.filter((pull) => {
     const query = filter.toLowerCase();
-    return (repository === "all" || pull.repository === repository) && (!query || pull.title.toLowerCase().includes(query) || pull.head.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query)));
+    return (activeRepository === "all" || pull.repository === activeRepository) && (!query || pull.title.toLowerCase().includes(query) || pull.head.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query)));
   }));
   const selectedUpdate = selectedUpdates[0] ?? null;
   const selectedUpdateCanTest = Boolean(selectedUpdate && canTestPullRequest(selectedUpdate, selectedUpdate.repository));
@@ -717,14 +876,13 @@ function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; 
       header={<Header variant="h1" description="Open dependency updates created by Renovate from a renovate/* source branch." counter={`(${overview.renovate.total})`}>Renovate updates</Header>}
     >
       <SpaceBetween size="l">
-        <Flashbar items={[{
-          type: overview.renovate.unassignedTotal ? "warning" : overview.renovate.total ? "info" : "success",
-          header: overview.renovate.unassignedTotal
-            ? `${overview.renovate.unassignedTotal} unassigned dependency ${overview.renovate.unassignedTotal === 1 ? "update requires" : "updates require"} review`
-            : overview.renovate.total ? "No open Renovate updates need triage" : "No Renovate updates require attention",
-          content: `${overview.renovate.total} open ${overview.renovate.total === 1 ? "update is" : "updates are"} shown below. Assigned updates and updates waiting for your review stay out of the homepage Renovate queue.`,
-        }]} />
+        {overview.renovate.unassignedTotal ? <Flashbar items={[{
+          type: "warning",
+          header: `${overview.renovate.unassignedTotal} automated ${overview.renovate.unassignedTotal === 1 ? "update requires" : "updates require"} manual attention`,
+          content: `${overview.renovate.total} open ${overview.renovate.total === 1 ? "update is" : "updates are"} shown below. Only observable blockers, direct assignment or review requests, and configured priority labels elevate an update on the overview.`,
+        }]} /> : null}
         <Table
+          className="selection-table-aligned"
           variant="container"
           trackBy="id"
           items={items}
@@ -742,7 +900,7 @@ function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; 
             { id: "branch", header: "Source branch", cell: (item) => <Box variant="code">{item.head}</Box> },
             { id: "age", header: "Age", cell: (item) => relativeTime(item.createdAt, overview.generatedAt) },
           ]}
-          empty={<EmptyState title="No Renovate updates" detail={repository === "all" ? "All tracked repositories are current." : "This repository has no open Renovate pull requests."} />}
+          empty={<EmptyState title="No Renovate updates" detail={activeRepository === "all" ? "All tracked repositories are current." : "This repository has no open Renovate pull requests."} />}
         />
       </SpaceBetween>
     </ContentLayout>
@@ -762,6 +920,7 @@ function RepositoryPullRequestTable({ items, title, repository, referenceTime, o
 
   return (
     <Table
+      className="selection-table-aligned"
       variant="container"
       trackBy="id"
       items={items}
@@ -776,6 +935,8 @@ function RepositoryPullRequestTable({ items, title, repository, referenceTime, o
         { id: "assignee", header: "Assigned to", cell: (item) => <PullPeople people={item.assignees} /> },
         { id: "branch", header: "Source branch", cell: (item) => <Box variant="code">{item.head}</Box> },
         { id: "target", header: "Target branch", cell: (item) => <Box variant="code">{item.base}</Box> },
+        { id: "workflow", header: "Workflow state", cell: pullWorkflowStatus },
+        { id: "why", header: "Why it is shown", cell: (item) => item.workflow.reason },
         { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, referenceTime) },
       ]}
       empty={<EmptyState title={`No ${title.toLowerCase()}`} detail="No items require review." />}
@@ -783,22 +944,26 @@ function RepositoryPullRequestTable({ items, title, repository, referenceTime, o
   );
 }
 
-function RepositoryPage({ overview, repository, workspace, loading, openDrawer, navigate }: {
+function RepositoryPage({ overview, repository, workspace, loading, error, openDrawer, navigate }: {
   overview: Overview;
   repository?: Repository;
   workspace: RepositoryWorkspace | null;
   loading: boolean;
+  error: string | null;
   openDrawer: (selection: DrawerSelection) => void;
   navigate: (href: string) => void;
 }) {
   if (!repository) {
     return <ContentLayout header={<Header variant="h1">Repository not found</Header>}><EmptyState title="Repository is not tracked" detail="Choose a repository from the navigation panel." /></ContentLayout>;
   }
-  if (loading || !workspace) {
+  if (loading) {
     return <ContentLayout header={<Header variant="h1">{repository.name}</Header>}><Box textAlign="center" padding={{ vertical: "xxxl" }}><Spinner size="large" /></Box></ContentLayout>;
   }
+  if (!workspace) {
+    return <ContentLayout header={<Header variant="h1">{repository.name}</Header>}><EmptyState title="Repository details are unavailable" detail={error ?? "GitHub did not return repository details. Try refreshing this page."} /></ContentLayout>;
+  }
 
-  const renovatePulls = newestPulls(workspace.pulls.open.filter((pull) => pull.head.toLowerCase().startsWith("renovate/") && pull.author.toLowerCase().includes("renovate")));
+  const renovatePulls = newestPulls(workspace.pulls.open.filter((pull) => pull.workflow.renovate));
   const issues = workspace.issues ?? [];
   const runs = workspace.actions?.runs ?? [];
   const referenceTime = workspace.generatedAt;
@@ -832,10 +997,10 @@ function RepositoryPage({ overview, repository, workspace, loading, openDrawer, 
           { colspan: { default: 12, xs: 6, l: 3 } },
           { colspan: { default: 12, xs: 6, l: 3 } },
         ]}>
-          <MetricCard title="Open pull requests" value={workspace.pullStats.open} description="Changes awaiting review." onDetails={() => openDrawer({ type: "open-pulls", repository: repository.fullName })} />
-          <MetricCard title="Renovate updates" value={renovatePulls.length} description="Dependency updates awaiting review." onDetails={() => openDrawer({ type: "renovate", repository: repository.fullName })} />
-          <MetricCard title="Open issues" value={issues.length} description="Repository issues requiring triage." onDetails={() => openDrawer({ type: "issues", repository: repository.fullName })} />
-          <MetricCard title="Latest pipeline" value={repository.pipeline?.conclusion === "success" ? "Passing" : pipelineFailed(repository.pipeline?.conclusion) ? "Failed" : "Unavailable"} description={repository.pipeline ? relativeTime(repository.pipeline.updatedAt, overview.generatedAt) : "No recent run data."} onDetails={() => openDrawer({ type: "pipelines", repository: repository.fullName })} attention={pipelineFailed(repository.pipeline?.conclusion)} status={pipelineStatus(repository.pipeline)} />
+          <MetricCard title="Open pull requests" value={workspace.pullStats.open} description={`${repository.workflowCounts.waitingOnMe} waiting on you · ${repository.workflowCounts.blocked} blocked · ${repository.workflowCounts.readyToMerge} ready to merge.`} onDetails={() => openDrawer({ type: "open-pulls", repository: repository.fullName })} />
+          <MetricCard title="Renovate updates" value={renovatePulls.length} description={repository.unassignedRenovatePulls ? `${repository.unassignedRenovatePulls} blocked or policy-elevated updates need manual attention.` : "Routine automated updates are informational."} onDetails={() => openDrawer({ type: "renovate", repository: repository.fullName })} indicator={repository.unassignedRenovatePulls ? { type: "warning", label: "Manual action required" } : undefined} />
+          <MetricCard title="Open issues" value={issues.length} description={`${overview.myWork.assignedIssues.filter((issue) => issue.repository === repository.fullName).length} assigned to you; other issues remain repository context.`} onDetails={() => openDrawer({ type: "issues", repository: repository.fullName })} />
+          <MetricCard title="Default branch workflow" value={repository.pipeline?.conclusion === "success" ? "Passing" : pipelineFailed(repository.pipeline?.conclusion) ? "Failed" : "Unavailable"} description={repository.attention.reason} onDetails={() => openDrawer({ type: "pipelines", repository: repository.fullName })} attention={pipelineFailed(repository.pipeline?.conclusion)} indicator={pipelineFailed(repository.pipeline?.conclusion) ? { type: "error", label: "Workflow failed" } : repository.pipeline?.conclusion === "success" ? { type: "success", label: "Workflow passing" } : { type: "pending", label: "Workflow status unavailable" }} />
         </Grid>
 
         <Tabs
@@ -855,7 +1020,7 @@ function RepositoryPage({ overview, repository, workspace, loading, openDrawer, 
             {
               label: "Pipelines",
               id: "pipelines",
-              content: <Table variant="container" trackBy="id" items={runs} header={<Header variant="h2" counter={`(${runs.length})`}>Recent pipelines</Header>} columnDefinitions={[{ id: "run", header: "Pipeline", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pipeline-run", run: item, repository: repository.fullName }); }}>{item.title}</Link><Box color="text-body-secondary">{item.name} #{item.number}</Box></SpaceBetween> }, { id: "branch", header: "Branch", cell: (item) => item.branch ?? "Unknown" }, { id: "status", header: "Result", cell: runStatus }, { id: "started", header: "Started", cell: (item) => relativeTime(item.createdAt, referenceTime) }]} empty={<EmptyState title="No pipeline results" detail="GitHub Actions returned no recent runs for this repository." />} />,
+              content: <Table variant="container" trackBy="id" items={runs} header={<Header variant="h2" counter={`(${runs.length})`}>Recent pipelines</Header>} columnDefinitions={[{ id: "run", header: "Pipeline", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); const failure = overview.workflowFailures.find((candidate) => candidate.id === item.id); openDrawer(failure ? { type: "workflow-failure", failure } : { type: "pipeline-run", run: item, repository: repository.fullName }); }}>{item.title}</Link><Box color="text-body-secondary">{item.name} #{item.number}</Box></SpaceBetween> }, { id: "branch", header: "Branch", cell: (item) => item.branch ?? "Unknown" }, { id: "status", header: "Result", cell: runStatus }, { id: "started", header: "Started", cell: (item) => relativeTime(item.createdAt, referenceTime) }]} empty={<EmptyState title="No pipeline results" detail="GitHub Actions returned no recent runs for this repository." />} />,
             },
             {
               label: "Infrastructure",

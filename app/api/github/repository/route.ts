@@ -10,6 +10,7 @@ import {
   RawRun,
 } from "@/lib/github";
 import { isTrackedRepository } from "@/lib/tracked-repositories";
+import { loadRepositoryOperations } from "@/lib/github-operations";
 
 export const runtime = "nodejs";
 
@@ -40,25 +41,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const viewer = await githubRequest<{ login: string }>("/user", 5 * 60_000);
     const [details, openPulls, closedPulls, runsResult, issueResults] = await Promise.all([
       githubRequest<RawRepo>(`/repos/${repository}`),
-      githubAllPages<RawPull>(`/repos/${repository}/pulls?state=open&sort=updated&direction=desc`, 10),
+      loadRepositoryOperations(repository, viewer.login).then((result) => result.pulls).catch(async () => (await githubAllPages<RawPull>(`/repos/${repository}/pulls?state=open&sort=updated&direction=desc`, 10)).map(presentPull)),
       githubAllPages<RawPull>(`/repos/${repository}/pulls?state=closed&sort=updated&direction=desc`, 20),
       githubRequest<RunsResponse>(`/repos/${repository}/actions/runs?per_page=30`).catch(() => null),
       githubAllPages<RawIssue>(`/repos/${repository}/issues?state=open&sort=updated&direction=desc`, 10).catch(() => []),
     ]);
 
+    const activeOpenPulls = openPulls.filter((pull) => !pull.workflow.ignored);
     const merged = closedPulls.filter((pull) => pull.merged_at);
     return NextResponse.json({
       repository: presentRepo(details),
       pullStats: {
-        open: openPulls.length,
-        draft: openPulls.filter((pull) => pull.draft).length,
+        open: activeOpenPulls.length,
+        draft: activeOpenPulls.filter((pull) => pull.draft).length,
         closed: closedPulls.length,
         merged: merged.length,
       },
       pulls: {
-        open: openPulls.slice(0, 50).map(presentPull),
+        open: activeOpenPulls.slice(0, 50),
         closed: closedPulls.slice(0, 50).map(presentPull),
       },
       issues: issueResults
@@ -92,6 +95,14 @@ export async function GET(request: NextRequest) {
               updatedAt: run.updated_at,
               actor: run.actor?.login ?? "system",
               actorAvatar: run.actor?.avatar_url ?? null,
+              commitSha: run.head_sha || null,
+              commitMessage: run.head_commit?.message?.split("\n")[0] ?? null,
+              commitAuthor: run.head_commit?.author?.username ?? run.head_commit?.author?.name ?? null,
+              failedJob: null,
+              failedStep: null,
+              failureSummary: null,
+              blocksPullRequest: null,
+              defaultBranch: run.head_branch === details.default_branch,
             })),
           }
         : null,

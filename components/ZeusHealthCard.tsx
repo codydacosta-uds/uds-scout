@@ -26,7 +26,7 @@ function formatUptime(seconds: number) {
 }
 
 function usageColor(value: number) {
-  return value >= 97 ? "#f85149" : value >= 85 ? "#d29922" : "#2ea043";
+  return value >= 97 ? "#f85149" : value >= 85 ? "#d6a514" : "#2ea043";
 }
 
 function ResourceUsage({ label, value, detail }: { label: string; value: number; detail: string }) {
@@ -58,8 +58,18 @@ export function ZeusHealthCard({ refreshKey }: { refreshKey: number }) {
   const [pollKey, setPollKey] = useState(0);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setPollKey((value) => value + 1), 60_000);
-    return () => window.clearInterval(timer);
+    let lastPoll = Date.now();
+    const pollIfVisibleAndDue = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastPoll < 60_000) return;
+      lastPoll = Date.now();
+      setPollKey((value) => value + 1);
+    };
+    const timer = window.setInterval(pollIfVisibleAndDue, 60_000);
+    document.addEventListener("visibilitychange", pollIfVisibleAndDue);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", pollIfVisibleAndDue);
+    };
   }, []);
 
   useEffect(() => {

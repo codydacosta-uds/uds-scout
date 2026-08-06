@@ -9,18 +9,20 @@ import Badge from "@cloudscape-design/components/badge";
 import Box from "@cloudscape-design/components/box";
 import Button from "@cloudscape-design/components/button";
 import ContentLayout from "@cloudscape-design/components/content-layout";
+import Container from "@cloudscape-design/components/container";
 import Flashbar from "@cloudscape-design/components/flashbar";
 import Grid from "@cloudscape-design/components/grid";
 import Header from "@cloudscape-design/components/header";
 import Icon from "@cloudscape-design/components/icon";
 import Link from "@cloudscape-design/components/link";
+import Popover from "@cloudscape-design/components/popover";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import { useEffect, useState } from "react";
 import type { DrawerSelection } from "./operations-types";
-import { EmptyState, MetricCard, pipelineStatus, relativeTime, repositoryHealth, udsCommonStatus } from "./operations-ui";
+import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryHealth, udsCommonStatus } from "./operations-ui";
 import type { GitLabWorkItems, Overview, RepositoryCatalog } from "./types";
 
 function greetingForHour(hour: number) {
@@ -33,6 +35,71 @@ function greetingForHour(hour: number) {
 function viewerFirstName(viewer: Overview["viewer"]) {
   const value = viewer.name?.trim().split(/\s+/)[0] || viewer.login.split(/[._-]/)[0];
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function DataFreshness({ generatedAt, refreshing, stale }: { generatedAt: string; refreshing: boolean; stale: boolean }) {
+  const generated = new Date(generatedAt);
+  const valid = Number.isFinite(generated.getTime());
+  const time = valid ? generated.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "unknown";
+  const fullTimestamp = valid ? generated.toLocaleString() : "The last update time is unavailable";
+  const label = refreshing ? "Refreshing data…" : stale ? `Last update ${time}` : `Updated ${time}`;
+
+  return (
+    <span className={`data-freshness${stale ? " data-freshness-stale" : ""}`} role="status" aria-live="polite" aria-atomic="true" title={fullTimestamp}>
+      {refreshing ? label : <><span>{stale ? "Last update" : "Updated"} </span><time dateTime={generatedAt} suppressHydrationWarning>{time}</time></>}
+    </span>
+  );
+}
+
+function gitLabWorkItemStatus(status: GitLabWorkItems["items"][number]["status"]) {
+  if (!status) return <StatusIndicator type="pending">Not set</StatusIndicator>;
+  const category = status.category.toLowerCase();
+  if (category === "in_progress") return <StatusIndicator type="in-progress">{status.name}</StatusIndicator>;
+  if (category === "done") return <StatusIndicator type="success">{status.name}</StatusIndicator>;
+  if (category === "cancelled") return <StatusIndicator type="stopped">{status.name}</StatusIndicator>;
+  return <StatusIndicator type="pending">{status.name}</StatusIndicator>;
+}
+
+function PanelInfo({ header, children }: { header: string; children: React.ReactNode }) {
+  return (
+    <Popover
+      header={header}
+      content={children}
+      dismissButton
+      dismissAriaLabel="Close information"
+      position="right"
+      size="medium"
+      triggerType="custom"
+    >
+      <Button variant="icon" iconName="status-info" ariaLabel={`About ${header}`} />
+    </Popover>
+  );
+}
+
+function ToolVersion({ release, generatedAt, className }: {
+  release: Overview["tools"][keyof Overview["tools"]];
+  generatedAt: string;
+  className: string;
+}) {
+  const publishedAt = release.publishedAt ? new Date(release.publishedAt).getTime() : Number.NaN;
+  const age = new Date(generatedAt).getTime() - publishedAt;
+  const changedIn24Hours = Boolean(
+    release.version &&
+    release.previousVersion &&
+    release.version !== release.previousVersion &&
+    Number.isFinite(age) &&
+    age >= 0 &&
+    age <= 86_400_000,
+  );
+
+  if (!changedIn24Hours) return <span className={className}>{release.version ?? "Unavailable"}</span>;
+  return (
+    <span className={`${className} tool-version-change`}>
+      <span className="tool-version-previous">{release.previousVersion}</span>
+      <span className="tool-version-arrow">→</span>
+      <span className="tool-version-current">{release.version}</span>
+    </span>
+  );
 }
 
 function VersionComparison({ label, current, target, outdated, aligned, onClick }: {
@@ -54,34 +121,35 @@ function VersionComparison({ label, current, target, outdated, aligned, onClick 
   );
 }
 
-type OverviewCardId = "pull-requests" | "renovate" | "issues" | "pipelines" | "uds-versions" | "reviews" | "zarf" | "pepr" | "uds-packages";
+type OverviewCardId = "pull-requests" | "renovate" | "issues" | "pipelines" | "uds-versions" | "reviews" | "zarf" | "pepr" | "uds-cli" | "uds-packages";
 
 const DEFAULT_OVERVIEW_CARD_ORDER: OverviewCardId[] = [
   "pull-requests",
-  "renovate",
-  "issues",
-  "pipelines",
-  "uds-versions",
   "reviews",
+  "pipelines",
+  "issues",
+  "uds-versions",
   "zarf",
   "pepr",
-  "uds-packages",
+  "uds-cli",
+  "renovate",
 ];
 
 const OVERVIEW_CARD_LABELS: Record<OverviewCardId, string> = {
-  "pull-requests": "Unassigned pull requests",
+  "pull-requests": "Waiting on me",
   renovate: "Renovate updates",
-  issues: "Repository issues",
+  issues: "Assigned issues",
   pipelines: "Pipeline status",
   "uds-versions": "UDS versions",
-  reviews: "Review requests",
+  reviews: "Ready to merge",
   zarf: "Zarf version",
   pepr: "Pepr version",
+  "uds-cli": "UDS CLI version",
   "uds-packages": "UDS Packages repositories",
 };
 
-const OVERVIEW_CARD_ORDER_KEY = "d2d-operations:overview-card-order";
-
+const overviewCardOrderKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:overview-card-order`;
+const legacyOverviewCardOrderKey = (viewer: string) => `d2d-operations:${viewer.toLowerCase()}:overview-card-order`;
 function SortableOverviewCard({ id, label, customizing, children }: {
   id: OverviewCardId;
   label: string;
@@ -106,8 +174,10 @@ function SortableOverviewCard({ id, label, customizing, children }: {
   );
 }
 
-export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
+export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
   overview: Overview;
+  refreshing: boolean;
+  refreshError: string | null;
   gitLabWorkItems: GitLabWorkItems | null;
   gitLabLoading: boolean;
   gitLabError: string | null;
@@ -131,6 +201,11 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
   const commonDisplayedVersion = commonOutdated
     ? commonReferencedVersions.length === 1 ? commonReferencedVersions[0] : "Mixed versions"
     : overview.udsCommon.latestVersion ?? "Unavailable";
+  const udsWarningLabel = overview.udsCommon.needsAttention
+    ? "UDS Common versions need alignment"
+    : overview.udsCore.comparison === "behind"
+      ? "UDS Core version needs alignment"
+      : null;
 
   useEffect(() => {
     const updateGreeting = () => setGreeting(greetingForHour(new Date().getHours()));
@@ -141,19 +216,30 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(window.localStorage.getItem(OVERVIEW_CARD_ORDER_KEY) ?? "[]") as unknown;
+      const savedValue = window.localStorage.getItem(overviewCardOrderKey(overview.viewer.login))
+        ?? window.localStorage.getItem(legacyOverviewCardOrderKey(overview.viewer.login))
+        ?? "[]";
+      const saved = JSON.parse(savedValue) as unknown;
       if (!Array.isArray(saved)) return;
       const valid = saved.filter((id): id is OverviewCardId => typeof id === "string" && DEFAULT_OVERVIEW_CARD_ORDER.includes(id as OverviewCardId));
       const unique = [...new Set(valid)];
+      if (!unique.length) {
+        setCardOrder(DEFAULT_OVERVIEW_CARD_ORDER);
+        return;
+      }
+      if (!unique.includes("uds-cli")) {
+        const peprIndex = unique.indexOf("pepr");
+        unique.splice(peprIndex >= 0 ? peprIndex + 1 : unique.length, 0, "uds-cli");
+      }
       setCardOrder([...unique, ...DEFAULT_OVERVIEW_CARD_ORDER.filter((id) => !unique.includes(id))]);
     } catch {
       // Keep the default order when browser preferences are unavailable or invalid.
     }
-  }, []);
+  }, [overview.viewer.login]);
 
   const updateCardOrder = (next: OverviewCardId[]) => {
     setCardOrder(next);
-    window.localStorage.setItem(OVERVIEW_CARD_ORDER_KEY, JSON.stringify(next));
+    window.localStorage.setItem(overviewCardOrderKey(overview.viewer.login), JSON.stringify(next));
   };
 
   const handleCardDragEnd = ({ active, over }: DragEndEvent) => {
@@ -164,40 +250,69 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
     updateCardOrder(arrayMove(cardOrder, previousIndex, nextIndex));
   };
 
+  const activeBriefingSince = new Date(new Date(overview.generatedAt).getTime() - 86_400_000).toISOString();
+  const briefingItems = overview.briefing.items.filter((item) => new Date(item.timestamp).getTime() >= new Date(activeBriefingSince).getTime());
+  const briefingWaiting = briefingItems.filter((item) => item.type === "review-request" || item.type === "pull-assigned").length;
+  const briefingProgress = briefingItems.filter((item) => item.type === "pull-approved" || item.type === "pull-merged" || item.type === "ready-to-merge").length;
+  const briefingFailures = briefingItems.filter((item) => item.type === "workflow-failure").length;
+  const briefingRecoveries = briefingItems.filter((item) => item.type === "workflow-recovery").length;
+  const primaryFailure = overview.workflowFailures[0];
+  const primaryFailureContext = primaryFailure
+    ? primaryFailure.blocksPullRequest
+      ? `${primaryFailure.repository.split("/").pop()} is blocking PR #${primaryFailure.blocksPullRequest}.`
+      : primaryFailure.defaultBranch
+        ? `The default branch for ${primaryFailure.repository.split("/").pop()} is failing.`
+        : `${primaryFailure.branch ?? "A non-default branch"} is failing in ${primaryFailure.repository.split("/").pop()}.`
+    : passingPipelines ? "Default branch workflows are passing." : "No workflow failures need attention.";
+  const workQueue = [...new Map([
+    ...overview.myWork.waitingOnMe,
+    ...overview.myWork.blocked,
+    ...overview.myWork.readyToMerge,
+    ...overview.myWork.waitingOnOthers,
+    ...overview.myWork.needsOwnership,
+  ].map((pull) => [pull.id, pull])).values()];
+  const myWorkCount = workQueue.length + overview.myWork.assignedIssues.length;
+  const routineRenovateTotal = Math.max(0, overview.renovate.total - overview.renovate.unassignedTotal);
+
+  if (!overview.repositories.length) {
+    return (
+      <ContentLayout header={<Header variant="h1" actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} /><Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}>{greeting}, {viewerFirstName(overview.viewer)}!</Header>}>
+        <Container><EmptyState title="No repositories selected" detail="Choose repositories in Workspace settings. UDS Scout will not aggregate other repositories available to your GitHub token." /><Box textAlign="center"><Button onClick={() => navigate("/settings")} variant="primary">Choose repositories</Button></Box></Container>
+      </ContentLayout>
+    );
+  }
+
   const cards: Record<OverviewCardId, React.ReactNode> = {
-    "pull-requests": <MetricCard title="Unassigned pull requests" value={overview.unassignedPullRequests.length} description="Non-Renovate changes with no assignee." onDetails={() => openDrawer({ type: "open-pulls", unassignedOnly: true })} />,
-    renovate: <MetricCard title="Renovate updates" value={overview.renovate.unassignedTotal} description="Unassigned dependency updates awaiting review." onDetails={() => openDrawer({ type: "renovate", unassignedOnly: true })} status={overview.renovate.unassignedTotal ? <StatusIndicator type="warning">Review available updates</StatusIndicator> : <StatusIndicator type="success">No unassigned updates</StatusIndicator>} />,
-    issues: <MetricCard title="Repository issues" value={overview.metrics.issueCount} description="Open issues, excluding pull requests." onDetails={() => openDrawer({ type: "issues" })} />,
-    pipelines: <MetricCard title="Pipeline status" value={overview.metrics.pipelineFailures ? `${overview.metrics.pipelineFailures} failing` : "Passing"} description={`${passingPipelines} of ${overview.metrics.repositories} latest pipelines are passing.`} onDetails={() => openDrawer({ type: "pipelines" })} attention={overview.metrics.pipelineFailures > 0} status={overview.metrics.pipelineFailures ? <StatusIndicator type="error">Action required</StatusIndicator> : <StatusIndicator type="success">No failures detected</StatusIndicator>} />,
+    "pull-requests": <MetricCard title="Waiting on me" value={overview.myWork.waitingOnMe.length} description={overview.myWork.waitingOnMe.length ? "Reviews or changes need your attention." : "No reviews or changes need you."} onDetails={() => openDrawer({ type: "my-work", queue: "waiting-on-me" })} indicator={overview.myWork.waitingOnMe.length ? { type: "warning", label: "Needs you" } : undefined} />,
+    renovate: <MetricCard title="Renovate attention" value={overview.renovate.unassignedTotal} description={overview.renovate.unassignedTotal ? routineRenovateTotal ? `${routineRenovateTotal} routine ${routineRenovateTotal === 1 ? "update can" : "updates can"} wait.` : "Elevated updates need manual attention." : `${overview.renovate.total} routine ${overview.renovate.total === 1 ? "update can" : "updates can"} wait.`} info={<PanelInfo header="Renovate attention">Routine updates stay informational. UDS Scout elevates only observable blockers, direct assignments or review requests, failing required checks, conflicts, and configured priority labels. Pull requests labeled stale are excluded.</PanelInfo>} onDetails={() => openDrawer({ type: "renovate", unassignedOnly: true })} indicator={overview.renovate.unassignedTotal ? { type: "warning", label: "Manual action required" } : undefined} />,
+    issues: <MetricCard title="Issues assigned to me" value={overview.myWork.assignedIssues.length} description={overview.myWork.assignedIssues.length ? "Assigned issues need follow-up." : "No assigned issues need action."} onDetails={() => openDrawer({ type: "my-work", queue: "assigned-issues" })} />,
+    pipelines: <MetricCard title="Workflow failures" value={overview.metrics.pipelineFailures ? `${overview.metrics.pipelineFailures} unresolved` : "None"} description={primaryFailureContext} onDetails={() => openDrawer({ type: "pipelines" })} attention={overview.workflowFailures.some((failure) => failure.defaultBranch || failure.blocksPullRequest)} indicator={overview.metrics.pipelineFailures ? { type: "error", label: "Needs investigation" } : undefined} />,
     "uds-versions": overview.capabilities.sonic ? (
       <MetricCard
         title="UDS versions"
         value={<span className="uds-version-pair"><VersionComparison label="UDS Core" current={overview.udsCore.version ?? "Unavailable"} target={overview.udsCore.upstreamVersion} outdated={overview.udsCore.comparison === "behind"} aligned={overview.udsCore.comparison === "current"} onClick={() => openDrawer({ type: "uds-core" })} /><VersionComparison label="UDS Common" current={commonDisplayedVersion} target={overview.udsCommon.latestVersion} outdated={commonOutdated} aligned={!commonOutdated && Boolean(overview.udsCommon.latestVersion)} onClick={() => openDrawer({ type: "uds-common" })} /></span>}
-        description="Tracked Core and Common versions across your repositories."
+        description="Core and Common alignment."
         onDetails={() => openDrawer({ type: "uds-versions" })}
-        status={overview.udsCommon.needsAttention ? <StatusIndicator type="warning">Common versions need alignment</StatusIndicator> : overview.udsCore.comparison === "behind" ? <StatusIndicator type="warning">Core version needs alignment</StatusIndicator> : overview.udsCore.comparison === "ahead" ? <StatusIndicator type="info">Core differs from upstream</StatusIndicator> : <StatusIndicator type="success">Versions aligned</StatusIndicator>}
+        indicator={udsWarningLabel ? { type: "warning", label: udsWarningLabel } : overview.udsCore.comparison === "ahead" ? { type: "info", label: "Core differs from upstream" } : { type: "success", label: "Versions aligned" }}
       />
     ) : (
       <MetricCard
         title="UDS versions"
         value={<span className="uds-version-pair"><VersionComparison label="UDS Core" current={overview.udsCore.upstreamVersion ?? "Unavailable"} outdated={false} aligned={Boolean(overview.udsCore.upstreamVersion)} onClick={() => openDrawer({ type: "uds-core" })} /><VersionComparison label="UDS Common" current={overview.udsCommon.latestVersion ?? "Unavailable"} outdated={false} aligned={Boolean(overview.udsCommon.latestVersion)} onClick={() => openDrawer({ type: "uds-common" })} /></span>}
-        description="Latest UDS Core and UDS Common releases."
+        description="Latest Core and Common releases."
         onDetails={() => openDrawer({ type: "uds-versions" })}
       />
     ),
-    reviews: <MetricCard title="Review requests" value={overview.reviewRequests.length} description="Pull requests specifically waiting for your review." onDetails={() => openDrawer({ type: "review-requests" })} status={overview.reviewRequests.length ? <StatusIndicator type="info">Your review requested</StatusIndicator> : <StatusIndicator type="success">No reviews waiting</StatusIndicator>} />,
-    zarf: <MetricCard title="Zarf version" value={<span className="metric-value-zarf">{overview.tools.zarf.version ?? "Unavailable"}</span>} description="Latest zarf-dev/zarf release." onDetails={() => openDrawer({ type: "tool-release", tool: "zarf" })} />,
-    pepr: <MetricCard title="Pepr version" value={<span className="metric-value-pepr">{overview.tools.pepr.version ?? "Unavailable"}</span>} description="Latest defenseunicorns/pepr release." onDetails={() => openDrawer({ type: "tool-release", tool: "pepr" })} />,
+    reviews: <MetricCard title="Ready to merge" value={overview.myWork.readyToMerge.length} description={overview.myWork.readyToMerge.length ? "Approvals and required checks are complete." : "No approved pull requests are waiting to merge."} onDetails={() => openDrawer({ type: "my-work", queue: "ready-to-merge" })} successHighlight={overview.myWork.readyToMerge.length > 0} indicator={overview.myWork.readyToMerge.length ? { type: "success", label: "Ready" } : undefined} />,
+    zarf: <MetricCard title="Zarf version" value={<ToolVersion release={overview.tools.zarf} generatedAt={overview.generatedAt} className="metric-value-zarf" />} description="Latest release." onDetails={() => openDrawer({ type: "tool-release", tool: "zarf" })} />,
+    pepr: <MetricCard title="Pepr version" value={<ToolVersion release={overview.tools.pepr} generatedAt={overview.generatedAt} className="metric-value-pepr" />} description="Latest release." onDetails={() => openDrawer({ type: "tool-release", tool: "pepr" })} />,
+    "uds-cli": <MetricCard title="UDS CLI version" value={<ToolVersion release={overview.tools.udsCli} generatedAt={overview.generatedAt} className="metric-value-uds-cli" />} description="Latest release." onDetails={() => openDrawer({ type: "tool-release", tool: "udsCli" })} />,
     "uds-packages": <MetricCard
       title="UDS Packages repositories"
       value={repositoryCatalog ? <span className="metric-value-uds-packages">{repositoryCatalog.metrics.total}</span> : repositoryCatalogLoading ? <Spinner /> : "Unavailable"}
-      description="Private and public repositories in uds-packages."
+      description={repositoryCatalog ? `${repositoryCatalog.metrics.private} private · ${repositoryCatalog.metrics.public} public` : "Private and public repositories in uds-packages."}
       onDetails={() => navigate("/uds-packages")}
-      status={repositoryCatalogError
-        ? <StatusIndicator type="warning">Catalog refresh unavailable</StatusIndicator>
-        : repositoryCatalog
-          ? <StatusIndicator type="info">{repositoryCatalog.metrics.private} private · {repositoryCatalog.metrics.public} public</StatusIndicator>
-          : <StatusIndicator type="pending">Loading repository catalog</StatusIndicator>}
+      indicator={repositoryCatalogError ? { type: "warning", label: "Catalog refresh unavailable" } : repositoryCatalog ? { type: "info", label: "Catalog available" } : { type: "pending", label: "Loading repository catalog" }}
     />,
   };
 
@@ -206,8 +321,8 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
       header={
         <Header
           variant="h1"
-          description="If it feels manual or repetitive, automate it."
-          actions={<SpaceBetween direction="horizontal" size="s">{customizeCardsOpen ? <span className="customize-cards-done"><Button iconName="check" variant="primary" onClick={() => setCustomizeCardsOpen(false)}>Done</Button></span> : <Button iconName="drag-indicator" onClick={() => setCustomizeCardsOpen(true)}>Customize cards</Button>}<Button iconName="refresh" variant="icon" ariaLabel="Refresh data" onClick={refresh} /></SpaceBetween>}
+          description="Scout tells you what matters across all your repositories. GitHub only tells you what's happening inside one. Go Fight Win!"
+          actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} />{customizeCardsOpen ? <span className="customize-cards-done"><Button iconName="check" variant="primary" onClick={() => setCustomizeCardsOpen(false)}>Done</Button></span> : <Button iconName="drag-indicator" onClick={() => setCustomizeCardsOpen(true)}>Customize cards</Button>}<Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}
         >
           {greeting}, {viewerFirstName(overview.viewer)}!
         </Header>
@@ -232,6 +347,31 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
           }]} />
         ) : null}
 
+        <Table
+          variant="container"
+          stickyHeader
+          trackBy="id"
+          header={<Header variant="h2" description="Next actions, blockers, and handoffs." info={<PanelInfo header="My work today">Includes pull requests waiting on you, blocked work, merge-ready work, your pull requests waiting on others, human-created work needing ownership, and assigned issues. Routine automation and pull requests labeled stale are excluded.</PanelInfo>} actions={overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : undefined}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
+          items={workQueue}
+          columnDefinitions={[
+            { id: "work", header: "Work", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
+            { id: "state", header: "Workflow state", cell: pullWorkflowStatus },
+            { id: "why", header: "Why it matters", cell: (item) => item.workflow.reason },
+            { id: "waiting", header: "Waiting on", cell: (item) => item.workflow.waitingOn.length ? item.workflow.waitingOn.join(", ") : <Box color="text-body-secondary">—</Box> },
+            { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, overview.generatedAt) },
+          ]}
+          empty={<EmptyState title="No action required" detail="Your selected-repository queue is clear." />}
+        />
+
+        <Container header={<Header variant="h2" description={briefingItems.length ? "Changes detected in the last 24 hours." : "No changes since yesterday."} actions={<Button onClick={() => openDrawer({ type: "briefing", since: activeBriefingSince })}>View details</Button>}><span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({briefingItems.length})</span></span></Header>}>
+          <div className="briefing-summary-grid">
+            <SpaceBetween size="xxs"><Box variant="awsui-key-label">WAITING ON YOU</Box><Box variant="awsui-value-large">{briefingWaiting}</Box></SpaceBetween>
+            <SpaceBetween size="xxs"><Box variant="awsui-key-label">PR PROGRESS</Box><Box variant="awsui-value-large">{briefingProgress}</Box></SpaceBetween>
+            <SpaceBetween size="xxs"><Box variant="awsui-key-label">WORKFLOW CHANGES</Box><Box variant="awsui-value-large">{briefingFailures + briefingRecoveries}</Box></SpaceBetween>
+            <SpaceBetween size="xxs"><Box variant="awsui-key-label">ASSIGNED ISSUES</Box><Box variant="awsui-value-large">{briefingItems.filter((item) => item.type === "issue-assigned").length}</Box></SpaceBetween>
+          </div>
+        </Container>
+
         <DndContext sensors={cardDragSensors} collisionDetection={closestCenter} onDragEnd={handleCardDragEnd}>
           <SortableContext items={cardOrder} strategy={rectSortingStrategy}>
             <Grid gridDefinition={cardOrder.map(() => ({ colspan: { default: 12, xs: 6, l: 4 } }))}>
@@ -245,16 +385,15 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
           stickyHeader
           stripedRows
           trackBy="id"
-          header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Current work and operational state by repository.">Repository status</Header>}
+          header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Attention across selected repositories." info={<PanelInfo header="Repository attention">Action required means an observable failure or work waiting on you. Needs attention covers blockers, merge-ready work, and unowned human pull requests. Monitor is non-default-branch activity worth watching. Routine automation and pull requests labeled stale do not elevate repository attention.</PanelInfo>}>Repository status</Header>}
           items={overview.repositories}
           columnDefinitions={[
             { id: "repository", header: "Repository", cell: (item) => <SpaceBetween size="xxs"><Link href={`/repositories/${item.fullName}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "repository", repository: item }); }} fontSize="body-m">{item.name}</Link><Box color="text-body-secondary">{item.fullName.split("/")[0]}</Box></SpaceBetween>, sortingField: "name" },
-            { id: "health", header: "Operational status", cell: repositoryHealth },
-            { id: "pulls", header: "Unassigned pull requests", cell: (item) => item.unassignedPullRequests },
-            { id: "renovate", header: "Unassigned Renovate", cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} pending</Badge></Link> : <Box color="text-body-secondary">None</Box> },
+            { id: "health", header: "Attention", cell: (item) => <SpaceBetween size="xxs">{repositoryHealth(item)}<Box color="text-body-secondary">{item.attention.reason}</Box></SpaceBetween> },
+            { id: "workflow", header: "Pull request workflow", cell: (item) => <SpaceBetween size="xxs"><Box>{item.workflowCounts.waitingOnMe} on you · {item.workflowCounts.blocked} blocked</Box><Box color="text-body-secondary">{item.workflowCounts.readyToMerge} ready · {item.workflowCounts.waitingOnOthers} waiting elsewhere</Box></SpaceBetween> },
             { id: "reviews", header: "Your reviews", cell: (item) => item.reviewRequests ? <Button variant="inline-link" onClick={() => openDrawer({ type: "review-requests", repository: item.fullName })}>{item.reviewRequests} requested</Button> : <Box color="text-body-secondary">None</Box> },
-            { id: "issues", header: "Issues", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "repository", repository: item })}>{item.issueCount}</Button> },
-            { id: "pipeline", header: "Latest pipeline", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "repository", repository: item })}>{pipelineStatus(item.pipeline)}</Button> },
+            { id: "pipeline", header: "Default branch workflow", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "pipelines", repository: item.fullName })}>{pipelineStatus(item.pipeline)}</Button> },
+            { id: "renovate", header: "Renovate attention", cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} elevated</Badge></Link> : <Box color="text-body-secondary">Informational</Box> },
             { id: "uds-common", header: "UDS Common", cell: (item) => item.udsCommon ? <Button variant="inline-link" onClick={() => openDrawer({ type: "uds-common", repository: item.fullName })}>{udsCommonStatus(item.udsCommon)}</Button> : <Box color="text-body-secondary">Not applicable</Box> },
           ]}
           empty={<EmptyState title="No repositories configured" detail="Add repositories to the tracked repository configuration." />}
@@ -263,8 +402,8 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
         {overview.capabilities.gitlab && gitLabError && gitLabWorkItems ? (
           <Flashbar items={[{
             type: "warning",
-            header: "GitLab work items could not be refreshed",
-            content: "Showing the last successfully loaded GitLab work item list.",
+            header: "Gitlab work items could not be refreshed",
+            content: "Showing the last successfully loaded Gitlab work item list.",
           }]} />
         ) : null}
 
@@ -274,15 +413,15 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
           stripedRows
           trackBy="id"
           loading={gitLabLoading && !gitLabWorkItems}
-          loadingText="Loading assigned GitLab work items"
+          loadingText="Loading assigned Gitlab work items"
           header={
             <Header
               variant="h2"
               counter={gitLabWorkItems ? `(${gitLabWorkItems.items.length})` : undefined}
-              description={gitLabWorkItems ? `Open work assigned to ${gitLabWorkItems.viewer.username}, newest created first.` : "Open work assigned to you in SONIC GitLab."}
-              actions={gitLabWorkItems ? <Button href={gitLabWorkItems.dashboardUrl} external>Open GitLab board</Button> : undefined}
+              description={gitLabWorkItems ? `Open work assigned to ${gitLabWorkItems.viewer.username}, newest created first.` : "Open work assigned to you in SONIC Gitlab."}
+              actions={<SpaceBetween direction="horizontal" size="s"><Button onClick={() => navigate("/gitlab/tickets")}>Create tickets</Button>{gitLabWorkItems ? <Button href={gitLabWorkItems.dashboardUrl} external>Open Gitlab board</Button> : null}</SpaceBetween>}
             >
-              My GitLab work items
+              My Gitlab work items
             </Header>
           }
           items={gitLabWorkItems?.items ?? []}
@@ -294,14 +433,15 @@ export function OverviewPage({ overview, gitLabWorkItems, gitLabLoading, gitLabE
               sortingField: "title",
             },
             { id: "project", header: "Project", cell: (item) => item.project, sortingField: "project" },
+            { id: "status", header: "Status", cell: (item) => gitLabWorkItemStatus(item.status) },
             { id: "labels", header: "Labels", cell: (item) => item.labels.length ? <SpaceBetween direction="horizontal" size="xxs">{item.labels.map((label) => <Badge key={label}>{label}</Badge>)}</SpaceBetween> : <Box color="text-body-secondary">None</Box> },
             { id: "due", header: "Due", cell: (item) => item.dueDate ?? <Box color="text-body-secondary">No due date</Box>, sortingField: "dueDate" },
             { id: "created", header: "Created", cell: (item) => relativeTime(item.createdAt, gitLabWorkItems?.generatedAt ?? overview.generatedAt), sortingField: "createdAt" },
             { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, gitLabWorkItems?.generatedAt ?? overview.generatedAt), sortingField: "updatedAt" },
           ]}
           empty={gitLabError
-            ? <EmptyState title="GitLab work items are unavailable" detail={gitLabError} />
-            : <EmptyState title="No open work assigned" detail="Your SONIC GitLab work item queue is clear." />}
+            ? <EmptyState title="Gitlab work items are unavailable" detail={gitLabError} />
+            : <EmptyState title="No open work assigned" detail="Your SONIC Gitlab work item queue is clear." />}
         /> : null}
 
       </SpaceBetween>

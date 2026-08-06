@@ -5,6 +5,13 @@ export type SetupStatus = {
   repositorySource: "environment" | "local" | "unconfigured";
   repositories: string[];
   viewer: SetupViewer | null;
+  gitlab: {
+    hasToken: boolean;
+    tokenSource: "environment" | "session" | null;
+    viewer: SetupGitlabViewer | null;
+    projects: string[];
+    defaultProject: string | null;
+  };
 };
 
 export type SetupViewer = {
@@ -12,6 +19,24 @@ export type SetupViewer = {
   name: string | null;
   avatar: string;
   url: string;
+};
+
+export type SetupGitlabViewer = {
+  username: string;
+  name: string | null;
+  avatar: string | null;
+  url: string;
+};
+
+export type SetupGitlabProject = {
+  id: number;
+  name: string;
+  fullPath: string;
+  url: string;
+  description: string | null;
+  updatedAt: string;
+  canCreateTickets: boolean;
+  ticketValidation: string;
 };
 
 export type SetupRepository = {
@@ -27,4 +52,10 @@ export type SetupRepository = {
 
 export type SetupRepositoryCatalog = {
   repositories: SetupRepository[];
+};
+
+export type SetupGitlabProjectCatalog = {
+  projects: SetupGitlabProject[];
+  selectedProjects: string[];
+  defaultProject: string | null;
 };

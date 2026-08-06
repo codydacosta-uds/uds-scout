@@ -1,6 +1,7 @@
 import Box from "@cloudscape-design/components/box";
-import Button from "@cloudscape-design/components/button";
+import Button, { type ButtonProps } from "@cloudscape-design/components/button";
 import Container from "@cloudscape-design/components/container";
+import Icon from "@cloudscape-design/components/icon";
 import Link from "@cloudscape-design/components/link";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
@@ -39,6 +40,18 @@ export function pullRequestTestLabHref(pull: PullRequest, repository: string) {
   return `/test-lab?${query.toString()}`;
 }
 
+const drawerPrimaryActionStyle = {
+  root: {
+    background: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
+    borderColor: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
+    color: { default: "#0b0c0e", hover: "#0b0c0e", active: "#0b0c0e" },
+  },
+} as const;
+
+export function DrawerPrimaryButton(props: ButtonProps) {
+  return <Button {...props} variant="primary" style={drawerPrimaryActionStyle} />;
+}
+
 const testLabActionStyle = {
   root: {
     background: { default: "#238636", hover: "#2ea043", active: "#1f6f32" },
@@ -71,25 +84,21 @@ export function runStatus(run: PipelineRun) {
 }
 
 export function repositoryHealth(repository: Repository) {
-  if (pipelineFailed(repository.pipeline?.conclusion)) {
-    return <StatusIndicator type="error">Pipeline failed</StatusIndicator>;
-  }
-  if (repository.reviewRequests > 0) {
-    return <StatusIndicator type="info">Review requested</StatusIndicator>;
-  }
-  if (repository.unassignedRenovatePulls > 0) {
-    return <StatusIndicator type="warning">Updates available</StatusIndicator>;
-  }
-  if (repository.unassignedPullRequests > 0) {
-    return <StatusIndicator type="warning">Unassigned changes</StatusIndicator>;
-  }
-  if (repository.udsCommon && repository.udsCommon.status !== "current") {
-    return <StatusIndicator type="warning">UDS Common attention</StatusIndicator>;
-  }
-  if (repository.health === "healthy") {
-    return <StatusIndicator type="success">No action required</StatusIndicator>;
-  }
+  if (repository.attention?.level === "action-required") return pipelineFailed(repository.pipeline?.conclusion) ? <StatusIndicator type="error">Action required</StatusIndicator> : <StatusIndicator type="warning">Action required</StatusIndicator>;
+  if (repository.attention?.level === "needs-attention") return <StatusIndicator type="warning">Needs attention</StatusIndicator>;
+  if (repository.attention?.level === "monitor") return <StatusIndicator type="info">Monitor</StatusIndicator>;
+  if (repository.attention?.level === "healthy") return <StatusIndicator type="success">Healthy</StatusIndicator>;
   return <StatusIndicator type="pending">Status unavailable</StatusIndicator>;
+}
+
+export function pullWorkflowStatus(pull: PullRequest) {
+  const state = pull.workflow.state;
+  if (state === "blocked") return <StatusIndicator type={pull.workflow.checks.failing ? "error" : "warning"}>{pull.workflow.label}</StatusIndicator>;
+  if (state === "ready-to-merge") return <StatusIndicator type="success">{pull.workflow.label}</StatusIndicator>;
+  if (state === "waiting-on-me") return <StatusIndicator type="warning">{pull.workflow.label}</StatusIndicator>;
+  if (state === "waiting-on-others" || state === "needs-approval") return <StatusIndicator type="info">{pull.workflow.label}</StatusIndicator>;
+  if (state === "needs-review") return <StatusIndicator type="warning">{pull.workflow.label}</StatusIndicator>;
+  return <StatusIndicator type="pending">{pull.workflow.label}</StatusIndicator>;
 }
 
 export function udsCommonStatus(item: UdsCommonRepository | Repository["udsCommon"]) {
@@ -107,11 +116,11 @@ export function PullAuthor({ pull }: { pull: PullRequest }) {
 }
 
 export function PullPeople({ people, empty = "Unassigned" }: {
-  people: PullRequest["assignees"];
+  people: { login: string; avatar: string | null; url?: string }[];
   empty?: string;
 }) {
   if (!people.length) return <Box color="text-body-secondary">{empty}</Box>;
-  return <>{people.map((person, index) => <span key={person.login}>{index ? ", " : ""}<Link href={`https://github.com/${encodeURIComponent(person.login)}`} external>{person.login}</Link></span>)}</>;
+  return <>{people.map((person, index) => <span key={person.login}>{index ? ", " : ""}<Link href={person.url ?? `https://github.com/${encodeURIComponent(person.login)}`} external>{person.login}</Link></span>)}</>;
 }
 
 export function UdsCoreVersion({ udsCore }: { udsCore: Overview["udsCore"] }) {
@@ -156,21 +165,31 @@ export function DrawerKeyValueList({ items }: {
   );
 }
 
-export function MetricCard({ title, value, description, status, onDetails, attention = false }: {
+export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, successHighlight = false }: {
   title: string;
   value: React.ReactNode;
   description: string;
-  status?: React.ReactNode;
+  info?: React.ReactNode;
+  indicator?: { type: "warning" | "error" | "success" | "pending" | "info"; label: string };
   onDetails?: () => void;
   attention?: boolean;
+  successHighlight?: boolean;
 }) {
+  const className = ["metric-card", attention && "metric-card-attention", successHighlight && "metric-card-success"].filter(Boolean).join(" ");
+  const indicatorIcon = indicator?.type === "error" ? "status-negative"
+    : indicator?.type === "warning" ? "status-warning"
+      : indicator?.type === "success" ? "status-positive"
+        : indicator?.type === "info" ? "status-info"
+          : "status-pending";
+  const indicatorVariant = indicator?.type === "pending" || indicator?.type === "info" ? "subtle" : indicator?.type;
+
   return (
-    <Container className={attention ? "metric-card metric-card-attention" : "metric-card"}>
+    <Container className={className}>
+      {indicator && onDetails ? <button type="button" className={`metric-card-indicator metric-card-indicator-${indicator.type}`} onClick={onDetails} aria-label={`${indicator.label}. View details`} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></button> : null}
       <SpaceBetween size="s">
-        <Box variant="awsui-key-label">{title}</Box>
+        <div className="metric-card-heading"><Box variant="awsui-key-label">{title}</Box>{info}</div>
         <Box variant="awsui-value-large" color={attention ? "text-status-error" : undefined}>{value}</Box>
         <Box color="text-body-secondary">{description}</Box>
-        {status ? <Box>{status}</Box> : null}
         {onDetails ? <Button variant="inline-link" onClick={onDetails}>View details</Button> : null}
       </SpaceBetween>
     </Container>

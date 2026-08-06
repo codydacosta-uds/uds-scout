@@ -1,5 +1,6 @@
 import "server-only";
 
+import { currentGitHubViewer } from "@/lib/github";
 import { readLocalSettings } from "@/lib/local-settings";
 import { TEST_LAB_REPOSITORIES } from "@/lib/repository-constants";
 
@@ -10,9 +11,9 @@ export function configuredRepositorySource() {
     ?.split(",")
     .map((repository) => repository.trim())
     .filter(Boolean);
-  const local = readLocalSettings();
+  const local = readLocalSettings(currentGitHubViewer());
   if (environment?.length) return { source: "environment" as const, repositories: environment, setupCompleted: local?.setupCompleted === true };
-  if (local?.repositories.length) return { source: "local" as const, repositories: local.repositories, setupCompleted: local.setupCompleted };
+  if (local) return { source: "local" as const, repositories: local.repositories, setupCompleted: local.setupCompleted };
 
   return { source: "unconfigured" as const, repositories: [], setupCompleted: false };
 }

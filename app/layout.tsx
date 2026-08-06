@@ -5,8 +5,8 @@ import "@xyflow/react/dist/style.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "D2D Operations",
-  description: "A local-first engineering console for tracked GitHub repositories",
+  title: "UDS Scout",
+  description: "A local-first engineering operations console for selected GitHub repositories",
   icons: { icon: "/doug-lg.svg" },
 };
 

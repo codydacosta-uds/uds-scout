@@ -1,0 +1,1 @@
+export const MAX_GITLAB_TICKET_BATCH = 20;

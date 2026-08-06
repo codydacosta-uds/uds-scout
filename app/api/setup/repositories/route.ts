@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { apiError, clearGitHubCache, githubAllPages, RawRepo } from "@/lib/github";
-import { writeLocalSettings } from "@/lib/local-settings";
+import { apiError, clearGitHubCache, currentGitHubViewer, githubAllPages, RawRepo } from "@/lib/github";
+import { gitlabAccessibleProjects, gitlabApiError, GitLabApiError, gitlabProjectPreflight, gitlabTokenStatus } from "@/lib/gitlab";
+import { readLocalSettings, writeLocalSettings } from "@/lib/local-settings";
 import { configuredRepositorySource } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
@@ -52,20 +53,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Cross-origin setup requests are not allowed." }, { status: 403 });
   }
   try {
+    const viewer = currentGitHubViewer();
+    const existing = readLocalSettings(viewer);
     const configured = configuredRepositorySource();
-    if (configured.source === "environment") {
-      writeLocalSettings({ repositories: configured.repositories, setupCompleted: true });
-      clearGitHubCache();
-      return NextResponse.json({ repositories: configured.repositories });
-    }
-
-    const body = await request.json() as { repositories?: unknown };
-    const requested = Array.isArray(body.repositories)
-      ? [...new Set(body.repositories.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
-      : [];
-    if (!requested.length) {
-      return NextResponse.json({ error: "Choose at least one managed repository." }, { status: 400 });
-    }
+    const body = await request.json() as { repositories?: unknown; gitlabProjects?: unknown; gitlabDefaultProject?: unknown };
+    const requested = configured.source === "environment"
+      ? configured.repositories
+      : Array.isArray(body.repositories)
+        ? [...new Set(body.repositories.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
+        : [];
     if (requested.length > MAX_MANAGED_REPOSITORIES) {
       return NextResponse.json({ error: `Choose no more than ${MAX_MANAGED_REPOSITORIES} managed repositories.` }, { status: 400 });
     }
@@ -78,11 +74,57 @@ export async function POST(request: NextRequest) {
     }
 
     const repositories = requested.map((repository) => availableNames.get(repository.toLowerCase())!);
-    writeLocalSettings({ repositories, setupCompleted: true });
+    const requestedGitlabProjects = Array.isArray(body.gitlabProjects)
+      ? [...new Set(body.gitlabProjects.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
+      : existing?.gitlabProjects ?? [];
+    if (requestedGitlabProjects.length > 50) {
+      return NextResponse.json({ error: "Choose no more than 50 Gitlab projects." }, { status: 400 });
+    }
+    const requestedDefault = typeof body.gitlabDefaultProject === "string" ? body.gitlabDefaultProject.trim() : null;
+    if (requestedDefault && !requestedGitlabProjects.some((project) => project.toLowerCase() === requestedDefault.toLowerCase())) {
+      return NextResponse.json({ error: "The default ticket project must be selected for Gitlab work items." }, { status: 400 });
+    }
+
+    let gitlabProjects: string[] = [];
+    let gitlabDefaultProject: string | null = null;
+    if (requestedGitlabProjects.length || requestedDefault) {
+      if (!gitlabTokenStatus().configured) {
+        return NextResponse.json({ error: "Connect a Gitlab token before selecting Gitlab projects." }, { status: 400 });
+      }
+      const availableGitlabProjects = await gitlabAccessibleProjects();
+      const availableGitlabNames = new Map(availableGitlabProjects.map((project) => [project.path_with_namespace.toLowerCase(), project.path_with_namespace]));
+      const invalidGitlabProjects = requestedGitlabProjects.filter((project) => !availableGitlabNames.has(project.toLowerCase()));
+      if (invalidGitlabProjects.length) {
+        return NextResponse.json({ error: "One or more selected Gitlab projects are no longer accessible." }, { status: 400 });
+      }
+      gitlabProjects = requestedGitlabProjects.map((project) => availableGitlabNames.get(project.toLowerCase())!);
+      const projectValidation = new Map<string, Awaited<ReturnType<typeof gitlabProjectPreflight>> | null>();
+      let validationCursor = 0;
+      await Promise.all(Array.from({ length: Math.min(5, gitlabProjects.length) }, async () => {
+        while (validationCursor < gitlabProjects.length) {
+          const project = gitlabProjects[validationCursor++];
+          const validation = await gitlabProjectPreflight(project, true).catch(() => null);
+          projectValidation.set(project.toLowerCase(), validation);
+        }
+      }));
+      const unreadableProject = gitlabProjects.find((project) => !projectValidation.get(project.toLowerCase())?.canReadWorkItems);
+      if (unreadableProject) {
+        return NextResponse.json({ error: `Gitlab could not validate work-item access for ${unreadableProject}.` }, { status: 409 });
+      }
+      if (requestedDefault) {
+        gitlabDefaultProject = availableGitlabNames.get(requestedDefault.toLowerCase()) ?? null;
+        const preflight = gitlabDefaultProject ? projectValidation.get(gitlabDefaultProject.toLowerCase()) : null;
+        if (!preflight?.canCreateTickets) {
+          return NextResponse.json({ error: "The default Gitlab project requires Developer access before it can receive tickets." }, { status: 409 });
+        }
+      }
+    }
+
+    writeLocalSettings({ repositories, setupCompleted: true, gitlabProjects, gitlabDefaultProject }, viewer);
     clearGitHubCache();
-    return NextResponse.json({ repositories });
+    return NextResponse.json({ repositories, gitlabProjects, gitlabDefaultProject });
   } catch (error) {
-    const failure = apiError(error);
+    const failure = error instanceof GitLabApiError ? gitlabApiError(error) : apiError(error);
     return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

@@ -1,12 +1,12 @@
 ---
 name: sonic-infrastructure-refresh
-description: Rescans nswccd-devsecops/sonic-swf-iac and refreshes D2D Operations infrastructure, deployment, UDS configuration, environment, and bundle knowledge. Use when the user asks to check for SONIC repository changes, refresh or update the Infrastructure Explorer, validate deployment tasks, update UDS package/config information, or investigate stale infrastructure relationships.
+description: Rescans nswccd-devsecops/sonic-swf-iac and refreshes UDS Scout infrastructure, deployment, UDS configuration, environment, and bundle knowledge. Use when the user asks to check for SONIC repository changes, refresh or update the Infrastructure Explorer, validate deployment tasks, update UDS package/config information, or investigate stale infrastructure relationships.
 compatibility: Requires network access and GITHUB_TOKEN or GH_TOKEN with read access to nswccd-devsecops/sonic-swf-iac.
 ---
 
 # SONIC Infrastructure Refresh
 
-Use this workflow whenever D2D Operations infrastructure knowledge may be stale. Do not trust a previous `/tmp` snapshot or hardcoded package/task assumptions.
+Use this workflow whenever UDS Scout infrastructure knowledge may be stale. Do not trust a previous `/tmp` snapshot or hardcoded package/task assumptions.
 
 ## Source repository
 

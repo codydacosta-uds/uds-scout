@@ -22,9 +22,11 @@ import type { DrawerSelection } from "./operations-types";
 import {
   canTestPullRequest,
   DrawerKeyValueList,
+  DrawerPrimaryButton,
   EmptyState,
   newestPulls,
   pipelineStatus,
+  pullWorkflowStatus,
   PullAuthor,
   PullPeople,
   pullRequestTestLabHref,
@@ -176,7 +178,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     return (
       <Drawer
         header={`Pull request #${pull.number}`}
-        footer={<SpaceBetween direction="horizontal" size="xs">{canTestPullRequest(pull, selection.repository) && selection.repository ? <TestInLabButton onClick={() => navigate(pullRequestTestLabHref(pull, selection.repository!))} /> : null}<Button href={pull.url} external>Open in GitHub</Button>{selection.repository ? <Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button> : null}</SpaceBetween>}
+        footer={<SpaceBetween direction="horizontal" size="xs">{canTestPullRequest(pull, selection.repository) && selection.repository ? <TestInLabButton onClick={() => navigate(pullRequestTestLabHref(pull, selection.repository!))} /> : null}<DrawerPrimaryButton href={pull.url} external>Open in GitHub</DrawerPrimaryButton>{selection.repository ? <Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button> : null}</SpaceBetween>}
       >
         <SpaceBetween size="l">
           <Box variant="h3">{pull.title}</Box>
@@ -185,14 +187,47 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
             { label: "Author", value: <PullAuthor pull={pull} /> },
             { label: "Source branch", value: <Box variant="code">{pull.head}</Box> },
             { label: "Target branch", value: <Box variant="code">{pull.base}</Box> },
-            { label: "Status", value: pull.draft ? <StatusIndicator type="pending">Draft</StatusIndicator> : <StatusIndicator type="success">Ready for review</StatusIndicator> },
+            { label: "Workflow state", value: pullWorkflowStatus(pull) },
+            { label: "Why this matters", value: pull.workflow.reason },
+            { label: "Approvals", value: pull.workflow.approvals.required === null ? `${pull.workflow.approvals.count} · required count unavailable` : `${pull.workflow.approvals.count} of ${pull.workflow.approvals.required} required` },
+            { label: "Required checks", value: pull.workflow.checks.summary },
+            { label: "Mergeable", value: pull.workflow.mergeable === "MERGEABLE" ? "Yes" : pull.workflow.mergeable === "CONFLICTING" ? "No — conflicts detected" : "Unable to verify" },
             { label: "Assigned to", value: <PullPeople people={pull.assignees} /> },
             { label: "Review requested from", value: <PullPeople people={pull.requestedReviewers} empty="No reviewers requested" /> },
+            { label: "Waiting on", value: pull.workflow.waitingOn.length ? pull.workflow.waitingOn.join(", ") : "No specific person identified" },
             { label: "Age", value: relativeTime(pull.createdAt, overview.generatedAt) },
             { label: "Updated", value: relativeTime(pull.updatedAt, overview.generatedAt) },
           ]} />
+          {pull.workflow.blockers.length ? <Container header={<Header variant="h3">Blocking progress</Header>}><SpaceBetween size="xs">{pull.workflow.blockers.map((blocker) => <StatusIndicator type={pull.workflow.checks.failing && blocker.toLowerCase().includes("failing") ? "error" : "warning"} key={blocker}>{blocker}</StatusIndicator>)}</SpaceBetween></Container> : null}
           <PullRequestDescription pull={pull} />
           {pull.labels.length ? <SpaceBetween direction="horizontal" size="xs">{pull.labels.map((label) => <Badge key={label.name}>{label.name}</Badge>)}</SpaceBetween> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
+  if (selection.type === "workflow-failure") {
+    const { failure } = selection;
+    return (
+      <Drawer header={`Failed workflow #${failure.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={failure.url} external>Open workflow run</DrawerPrimaryButton><Button onClick={() => navigate(`/repositories/${failure.repository}`)}>Open repository page</Button></SpaceBetween>}>
+        <SpaceBetween size="l">
+          <Box variant="h3">{failure.title}</Box>
+          <StatusIndicator type="error">{failure.attentionReason}</StatusIndicator>
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: failure.repository },
+            { label: "Workflow", value: failure.name },
+            { label: "Failed job", value: failure.failedJob ?? "Unavailable with current GitHub permissions" },
+            { label: "Failed step", value: failure.failedStep ?? "Unavailable with current GitHub permissions" },
+            { label: "Failure summary", value: failure.failureSummary ?? "GitHub did not return failure details." },
+            { label: "Branch", value: failure.branch ?? "Unknown" },
+            { label: "Commit", value: failure.commitSha ? <Box variant="code">{failure.commitSha.slice(0, 12)}</Box> : "Unavailable" },
+            { label: "Commit message", value: failure.commitMessage ?? "Unavailable" },
+            { label: "Commit author", value: failure.commitAuthor ?? "Unavailable" },
+            { label: "Default branch", value: failure.defaultBranch ? "Yes" : "No" },
+            { label: "Blocks pull request", value: failure.blocksPullRequest ? `#${failure.blocksPullRequest}` : "Not known to block a selected pull request" },
+            { label: "Age", value: relativeTime(failure.updatedAt, overview.generatedAt) },
+          ]} />
+          <Box color="text-body-secondary">UDS Scout does not retrieve or display full workflow logs. Open GitHub for log-level investigation.</Box>
         </SpaceBetween>
       </Drawer>
     );
@@ -201,7 +236,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   if (selection.type === "pipeline-run") {
     const { run } = selection;
     return (
-      <Drawer header={`Pipeline run #${run.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><Button href={run.url} external variant="primary">Open in GitHub</Button><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
+      <Drawer header={`Pipeline run #${run.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={run.url} external>Open in GitHub</DrawerPrimaryButton><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box variant="h3">{run.title}</Box>
           {runStatus(run)}
@@ -221,7 +256,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   if (selection.type === "issue") {
     const { issue } = selection;
     return (
-      <Drawer header={`Issue #${issue.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><Button href={issue.url} external variant="primary">Open in GitHub</Button><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
+      <Drawer header={`Issue #${issue.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={issue.url} external>Open in GitHub</DrawerPrimaryButton><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box variant="h3">{issue.title}</Box>
           <StatusIndicator type="warning">Open</StatusIndicator>
@@ -240,13 +275,14 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   if (selection.type === "repository") {
     const repository = selection.repository;
     return (
-      <Drawer header={repository.name} footer={<SpaceBetween direction="horizontal" size="xs"><Button onClick={() => navigate(`/repositories/${repository.fullName}`)} variant="primary">Open repository page</Button><Button href={repository.url} external>GitHub</Button></SpaceBetween>}>
+      <Drawer header={repository.name} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton onClick={() => navigate(`/repositories/${repository.fullName}`)}>Open repository page</DrawerPrimaryButton><Button href={repository.url} external>GitHub</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box color="text-body-secondary">{repository.description ?? "Tracked repository"}</Box>
           {repositoryHealth(repository)}
+          <Box>{repository.attention.reason}</Box>
           <DrawerKeyValueList items={[
             { label: "Repository", value: repository.fullName },
-            { label: "Open pull requests", value: repository.openPullRequests },
+            { label: "Open pull requests", value: `${repository.openPullRequests} · ${repository.workflowCounts.waitingOnMe} waiting on you · ${repository.workflowCounts.blocked} blocked · ${repository.workflowCounts.readyToMerge} ready` },
             { label: "Renovate updates", value: repository.renovatePulls },
             { label: "Your review requests", value: repository.reviewRequests },
             { label: "UDS Common", value: udsCommonStatus(repository.udsCommon) },
@@ -263,7 +299,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   if (selection.type === "tool-release") {
     const release = overview.tools[selection.tool];
     return (
-      <Drawer header={`${release.name} release`} footer={<Button href={release.url} external variant="primary">Open release</Button>}>
+      <Drawer header={`${release.name} release`} footer={<DrawerPrimaryButton href={release.url} external>Open release</DrawerPrimaryButton>}>
         <SpaceBetween size="l">
           <Box variant="awsui-value-large">{release.version ?? "Unavailable"}</Box>
           <Box color="text-body-secondary">Latest release published by {release.repository}.</Box>
@@ -305,16 +341,16 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     return (
       <Drawer header="UDS versions">
         <SpaceBetween size="l">
-          <Container header={<Header variant="h3">UDS Core</Header>}>
+          <Container className="uds-version-drawer-card" header={<Header variant="h3">UDS Core</Header>}>
             <SpaceBetween size="s">
-              <Box variant="awsui-value-large"><UdsCoreVersion udsCore={overview.udsCore} /></Box>
+              <Box variant="awsui-value-large"><span className="uds-core-drawer-version"><UdsCoreVersion udsCore={overview.udsCore} /></span></Box>
               <Box color="text-body-secondary">Tracked by {overview.udsCore.repository} and compared with the latest upstream release.</Box>
               <Button onClick={() => onSelect({ type: "uds-core" })}>View UDS Core details</Button>
             </SpaceBetween>
           </Container>
-          <Container header={<Header variant="h3">UDS Common</Header>}>
+          <Container className="uds-version-drawer-card" header={<Header variant="h3">UDS Common</Header>}>
             <SpaceBetween size="s">
-              <Box variant="awsui-value-large">{overview.udsCommon.latestVersion ?? "Unavailable"}</Box>
+              <Box variant="awsui-value-large"><span className="uds-core-drawer-version">{overview.udsCommon.latestVersion ?? "Unavailable"}</span></Box>
               {overview.udsCommon.needsAttention ? <StatusIndicator type="warning">{overview.udsCommon.needsAttention} repositories need attention</StatusIndicator> : <StatusIndicator type="success">{alignedRepositories} repositories aligned</StatusIndicator>}
               <Box color="text-body-secondary">Repository task includes are compared with the latest UDS Common release.</Box>
               <Button onClick={() => onSelect({ type: "uds-common" })}>View UDS Common details</Button>
@@ -336,7 +372,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     return (
       <Drawer
         header="UDS Common alignment"
-        footer={<Button href={overview.udsCommon.latestUrl} external variant="primary">Open latest UDS Common release</Button>}
+        footer={<DrawerPrimaryButton href={overview.udsCommon.latestUrl} external>Open latest UDS Common release</DrawerPrimaryButton>}
       >
         <SpaceBetween size="l">
           <DrawerKeyValueList items={[
@@ -367,10 +403,10 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   if (selection.type === "uds-core") {
     if (!overview.capabilities.sonic) {
       return (
-        <Drawer header="Latest UDS Core release" footer={<Button href={overview.udsCore.upstreamUrl} external variant="primary">Open UDS Core release</Button>}>
+        <Drawer header="Latest UDS Core release" footer={<DrawerPrimaryButton href={overview.udsCore.upstreamUrl} external>Open UDS Core release</DrawerPrimaryButton>}>
           <SpaceBetween size="l">
             <Box variant="awsui-value-large">{overview.udsCore.upstreamVersion ?? "Unavailable"}</Box>
-            <Box color="text-body-secondary">This workspace does not track a SONIC repository, so D2D Operations shows the latest upstream defenseunicorns/uds-core release without a local comparison.</Box>
+            <Box color="text-body-secondary">This workspace does not track a SONIC repository, so UDS Scout shows the latest upstream defenseunicorns/uds-core release without a local comparison.</Box>
           </SpaceBetween>
         </Drawer>
       );
@@ -386,10 +422,10 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     return (
       <Drawer
         header="UDS Core version"
-        footer={<SpaceBetween direction="horizontal" size="xs"><Button href={overview.udsCore.upstreamUrl} external variant="primary">Open UDS Core</Button>{overview.udsCore.url ? <Button href={overview.udsCore.url} external>View source file</Button> : null}</SpaceBetween>}
+        footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={overview.udsCore.upstreamUrl} external>Open UDS Core</DrawerPrimaryButton>{overview.udsCore.url ? <Button href={overview.udsCore.url} external>View source file</Button> : null}</SpaceBetween>}
       >
         <SpaceBetween size="l">
-          <Box variant="awsui-value-large"><UdsCoreVersion udsCore={overview.udsCore} /></Box>
+          <Box variant="awsui-value-large"><span className="uds-core-drawer-version"><UdsCoreVersion udsCore={overview.udsCore} /></span></Box>
           {coreStatus}
           <Box color="text-body-secondary">The tracked version is compared by major, minor, and patch against the latest defenseunicorns/uds-core release. The local -unicorn suffix is ignored.</Box>
           <div className="uds-core-detail-links">
@@ -406,12 +442,67 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     );
   }
 
+  if (selection.type === "my-work") {
+    const pulls = selection.queue === "waiting-on-me" ? overview.myWork.waitingOnMe
+      : selection.queue === "waiting-on-others" ? overview.myWork.waitingOnOthers
+        : selection.queue === "blocked" ? overview.myWork.blocked
+          : selection.queue === "ready-to-merge" ? overview.myWork.readyToMerge
+            : selection.queue === "needs-ownership" ? overview.myWork.needsOwnership
+              : [];
+    const titles = {
+      "waiting-on-me": "Waiting on me",
+      "waiting-on-others": "Waiting on someone else",
+      blocked: "Blocked pull requests",
+      "ready-to-merge": "Ready to merge",
+      "needs-ownership": "Needs ownership",
+      "assigned-issues": "Issues assigned to me",
+    };
+    if (selection.queue === "assigned-issues") {
+      return <Drawer header={titles[selection.queue]}><SpaceBetween size="m"><Box color="text-body-secondary">Open issues assigned to {overview.viewer.login} in selected repositories.</Box>{overview.myWork.assignedIssues.length ? overview.myWork.assignedIssues.map((issue) => <Container key={`${issue.repository}-${issue.id}`}><SpaceBetween size="xs"><Link href={issue.url} external>{issue.title}</Link><Box color="text-body-secondary">{issue.repository} · #{issue.number} · updated {relativeTime(issue.updatedAt, overview.generatedAt)}</Box></SpaceBetween></Container>) : <EmptyState title="No assigned issues" detail="No selected-repository issues are assigned to you." />}</SpaceBetween></Drawer>;
+    }
+    return <Drawer header={titles[selection.queue]} footer={<DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton>}><SpaceBetween size="m"><Box color="text-body-secondary">Each item includes the observable reason it appears in this queue.</Box>{pulls.length ? pulls.map((pull) => <Container key={`${pull.repository}-${pull.id}`}><SpaceBetween size="xs"><Link href={pull.url} onFollow={(event) => { event.preventDefault(); onSelect({ type: "pull-request", pull, repository: pull.repository }); }}>{pull.title}</Link>{pullWorkflowStatus(pull)}<Box color="text-body-secondary">{pull.repository} · #{pull.number}</Box><Box>{pull.workflow.reason}</Box></SpaceBetween></Container>) : <EmptyState title={`Nothing ${titles[selection.queue].toLowerCase()}`} detail="No selected-repository pull request currently matches this workflow state." />}</SpaceBetween></Drawer>;
+  }
+
+  if (selection.type === "briefing") {
+    const items = overview.briefing.items.filter((item) => new Date(item.timestamp).getTime() >= new Date(selection.since).getTime());
+    const groups = [
+      { title: "Waiting on you", description: "Review requests and assigned pull requests.", types: ["review-request", "pull-assigned"] },
+      { title: "Pull request progress", description: "Approvals, merges, and pull requests ready to merge.", types: ["pull-approved", "pull-merged", "ready-to-merge"] },
+      { title: "Workflow changes", description: "Latest workflow failures and recoveries.", types: ["workflow-failure", "workflow-recovery"] },
+      { title: "Assigned issues", description: "Assigned issues updated during this period.", types: ["issue-assigned"] },
+    ];
+    return (
+      <Drawer header={<span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({items.length})</span></span>}>
+        <SpaceBetween size="l">
+          {groups.map((group) => {
+            const matches = items.filter((item) => group.types.includes(item.type));
+            return matches.length ? (
+              <Container key={group.title} header={<Header variant="h3" counter={`(${matches.length})`} description={group.description}>{group.title}</Header>}>
+                <SpaceBetween size="m">
+                  {matches.map((item) => (
+                    <div key={item.id}>
+                      <Link href={item.url} external>{item.title}</Link>
+                      <Box color="text-body-secondary">{item.repository} · {relativeTime(item.timestamp, overview.generatedAt)}</Box>
+                      <Box color="text-body-secondary">{item.detail}</Box>
+                    </div>
+                  ))}
+                </SpaceBetween>
+              </Container>
+            ) : null;
+          })}
+          {items.length ? null : <EmptyState title="No changes since yesterday" detail="No selected-repository changes were found in the last 24 hours." />}
+          <Box color="text-body-secondary">Assignment and review-request timing uses the pull request update time when GitHub does not provide the transition time.</Box>
+        </SpaceBetween>
+      </Drawer>
+    );
+  }
+
   if (selection.type === "open-pulls") {
     const source = selection.unassignedOnly ? overview.unassignedPullRequests : overview.pullRequests;
     const pulls = source.filter((pull) => !selection.repository || pull.repository === selection.repository);
     const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
     return (
-      <Drawer header={selection.unassignedOnly ? "Unassigned pull requests" : "Open pull requests"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><Button onClick={() => navigate("/pull-requests")} variant="primary">Open full pull request list</Button></SpaceBetween>}>
+      <Drawer header={selection.unassignedOnly ? "Unassigned pull requests" : "Open pull requests"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton></SpaceBetween>}>
         <SpaceBetween size="m">
           <Box color="text-body-secondary">{selection.unassignedOnly ? `${pulls.length} non-Renovate changes have no assignee and are not already waiting for your review.` : `${pulls.length} changes are waiting for review${selection.repository ? ` in ${selection.repository}` : " across tracked repositories"}.`}</Box>
           {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })} /> : null) : <EmptyState title={selection.unassignedOnly ? "No unassigned pull requests" : "No open pull requests"} detail="There are no changes waiting for review." />}
@@ -429,7 +520,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const fullHref = selection.repository ? `/renovate?repository=${encodeURIComponent(selection.repository)}` : "/renovate";
     const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
     return (
-      <Drawer header={selection.unassignedOnly ? "Unassigned Renovate updates" : "Renovate updates"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><Button onClick={() => navigate(fullHref)} variant="primary">Open full Renovate list</Button></SpaceBetween>}>
+      <Drawer header={selection.unassignedOnly ? "Unassigned Renovate updates" : "Renovate updates"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><DrawerPrimaryButton onClick={() => navigate(fullHref)}>Open full Renovate list</DrawerPrimaryButton></SpaceBetween>}>
         <SpaceBetween size="m">
           <Box color="text-body-secondary">{selection.unassignedOnly ? "Unassigned dependency updates that may need your attention." : <>Dependency updates created by Renovate from a <Box variant="code" display="inline">renovate/*</Box> source branch.</>} Newest opened first.</Box>
           {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}>{pull.assignees.length ? <StatusIndicator type="in-progress">Assigned to {pull.assignees.map((assignee) => assignee.login).join(", ")}</StatusIndicator> : <StatusIndicator type="warning">Unassigned</StatusIndicator>}</DrawerPullOption> : null) : <EmptyState title="No Renovate updates need attention" detail="Open updates are assigned, waiting for your review, or complete." />}
@@ -442,7 +533,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const pulls = overview.reviewRequests.filter((pull) => !selection.repository || pull.repository === selection.repository);
     const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
     return (
-      <Drawer header="Review requests" footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><Button onClick={() => navigate("/pull-requests")} variant="primary">Open full pull request list</Button></SpaceBetween>}>
+      <Drawer header="Review requests" footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton></SpaceBetween>}>
         <SpaceBetween size="m">
           <Box color="text-body-secondary">Pull requests where {overview.viewer.login} was specifically requested as a reviewer{selection.repository ? ` in ${selection.repository}` : ""}.</Box>
           {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}><StatusIndicator type="info">Your review requested</StatusIndicator></DrawerPullOption> : null) : <EmptyState title="No reviews requested" detail="No open pull requests are waiting specifically for your review." />}
@@ -465,11 +556,13 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 
   if (selection.type === "pipelines") {
     const repositories = overview.repositories.filter((repository) => !selection.repository || repository.fullName === selection.repository);
+    const failures = overview.workflowFailures.filter((failure) => !selection.repository || failure.repository === selection.repository);
     return (
-      <Drawer header="Pipeline status">
-        <SpaceBetween size="m">
-          <Box color="text-body-secondary">Latest pipeline result for each repository.</Box>
-          {repositories.map((repository) => <Container key={repository.id}><SpaceBetween size="xs"><Link href={`/repositories/${repository.fullName}`} onFollow={(event) => { event.preventDefault(); onSelect({ type: "repository", repository }); }}>{repository.fullName}</Link>{pipelineStatus(repository.pipeline)}<Box color="text-body-secondary">{repository.pipeline ? `${repository.pipeline.name} · ${relativeTime(repository.pipeline.updatedAt, overview.generatedAt)}` : "No pipeline data returned"}</Box>{repository.pipeline?.url ? <Button href={repository.pipeline.url} external variant="inline-link">Open run</Button> : null}</SpaceBetween></Container>)}
+      <Drawer header="Workflow status">
+        <SpaceBetween size="l">
+          <Box color="text-body-secondary">Unresolved workflow failures are shown with why they matter. Default-branch status follows.</Box>
+          {failures.length ? failures.map((failure) => <Container key={failure.id}><SpaceBetween size="xs"><Link href={failure.url} onFollow={(event) => { event.preventDefault(); onSelect({ type: "workflow-failure", failure }); }}>{failure.title}</Link><StatusIndicator type="error">{failure.attentionReason}</StatusIndicator><Box color="text-body-secondary">{failure.repository} · {failure.name} · {relativeTime(failure.updatedAt, overview.generatedAt)}</Box><Box>{failure.failureSummary ?? "Failed job details are unavailable."}</Box></SpaceBetween></Container>) : <StatusIndicator type="success">No unresolved workflow failures detected</StatusIndicator>}
+          <Container header={<Header variant="h3">Default branches</Header>}><SpaceBetween size="m">{repositories.map((repository) => <div className="drawer-pipeline-row" key={repository.id}><div className="drawer-pipeline-heading"><Link href={`/repositories/${repository.fullName}`} onFollow={(event) => { event.preventDefault(); onSelect({ type: "repository", repository }); }}>{repository.fullName}</Link>{pipelineStatus(repository.pipeline)}</div><Box color="text-body-secondary">{repository.pipeline ? `${repository.pipeline.name} · ${relativeTime(repository.pipeline.updatedAt, overview.generatedAt)}` : "No default-branch workflow data returned"}</Box></div>)}</SpaceBetween></Container>
         </SpaceBetween>
       </Drawer>
     );

@@ -28,6 +28,7 @@ import Table from "@cloudscape-design/components/table";
 import Tabs from "@cloudscape-design/components/tabs";
 import TextFilter from "@cloudscape-design/components/text-filter";
 import { useMemo, useState } from "react";
+import { DrawerPrimaryButton } from "./operations-ui";
 import type {
   InfrastructureCategory,
   InfrastructureExplorerData,
@@ -643,7 +644,7 @@ export function InfrastructureNodeDrawer({
   return (
     <Drawer
       header={human(node.name)}
-      footer={<Button href={node.sourceUrl} external variant="primary">View definition on GitHub</Button>}
+      footer={<DrawerPrimaryButton href={node.sourceUrl} external>View definition on GitHub</DrawerPrimaryButton>}
     >
       <SpaceBetween size="l">
         {node.scope !== "root" ? <StatusIndicator type="pending">Reusable local module definition</StatusIndicator> : node.managed ? <StatusIndicator type="success">Created or managed by this repository</StatusIndicator> : <StatusIndicator type="info">Existing infrastructure reference</StatusIndicator>}

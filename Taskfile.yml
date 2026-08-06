@@ -1,9 +1,10 @@
 version: "3"
 
-# D2D Operations local development tasks.
+# UDS Scout local development tasks.
 vars:
-  DOCKER_IMAGE: d2d-operations
-  DOCKER_CONTAINER: d2d-operations
+  DOCKER_IMAGE: uds-scout
+  DOCKER_CONTAINER: uds-scout
+  # Keep the legacy volume name so existing repository selections survive the rebrand.
   DOCKER_VOLUME: d2d-operations-data
 
 tasks:
@@ -14,10 +15,10 @@ tasks:
     silent: true
 
   start:
-    desc: Start D2D Operations on 127.0.0.1:3001
+    desc: Start UDS Scout on 127.0.0.1:3001
     cmds:
       - test -d node_modules || npm install
-      - echo "D2D Operations http://d2d.admin.uds.localhost:3001/"
+      - echo "UDS Scout http://d2d.admin.uds.localhost:3001/"
       - zsh -c 'source "$HOME/.zshrc" && npm run dev'
     silent: true
 
@@ -51,13 +52,14 @@ tasks:
       - docker:build
     cmds:
       - docker rm --force {{.DOCKER_CONTAINER}} >/dev/null 2>&1 || true
+      - docker rm --force d2d-operations >/dev/null 2>&1 || true
       - >-
         docker run --detach
         --name {{.DOCKER_CONTAINER}}
         --publish 127.0.0.1:{{.PORT | default "3001"}}:3001
         --mount source={{.DOCKER_VOLUME}},target=/data
         {{.DOCKER_IMAGE}}
-      - echo "D2D Operations is starting at http://127.0.0.1:{{.PORT | default "3001"}}"
+      - echo "UDS Scout is starting at http://127.0.0.1:{{.PORT | default "3001"}}"
       - echo "Open the URL and enter your GitHub token to continue."
     silent: true
 
@@ -65,7 +67,7 @@ tasks:
     desc: Stop and remove the Docker container while preserving workspace settings
     cmds:
       - docker rm --force {{.DOCKER_CONTAINER}} >/dev/null 2>&1 || true
-      - echo "D2D Operations stopped. Saved repository selections were preserved."
+      - echo "UDS Scout stopped. Saved repository selections were preserved."
     silent: true
 
   docker:logs:

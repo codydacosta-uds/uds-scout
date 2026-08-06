@@ -47,8 +47,46 @@ export type PullRequest = {
   summary: string | null;
   labels: { name: string; color: string }[];
   assignees: { login: string; avatar: string | null }[];
-  requestedReviewers: { login: string; avatar: string | null }[];
+  requestedReviewers: { login: string; avatar: string | null; url?: string; kind?: "user" | "team" }[];
   repository?: string;
+  workflow: PullRequestWorkflow;
+};
+
+export type PullRequestWorkflow = {
+  state: "waiting-on-me" | "waiting-on-others" | "blocked" | "ready-to-merge" | "needs-review" | "needs-approval" | "no-action";
+  progress: "draft" | "no-approvals" | "partially-approved" | "fully-approved" | "ready-to-merge" | "approved-blocked" | "approved-unmerged" | "changes-requested" | "merge-conflict" | "waiting-reviewer" | "waiting-checks" | "unknown";
+  label: string;
+  reason: string;
+  blockers: string[];
+  waitingOn: string[];
+  approvals: {
+    count: number;
+    required: number | null;
+    reviewers: string[];
+    changesRequestedBy: string[];
+    decision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
+    lastApprovedAt: string | null;
+  };
+  checks: {
+    requiredKnown: boolean;
+    total: number;
+    required: number;
+    passed: number;
+    pending: number;
+    failing: number;
+    failingNames: string[];
+    summary: string;
+  };
+  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+  mergeStateStatus: string;
+  headSha: string | null;
+  assignedToViewer: boolean;
+  authoredByViewer: boolean;
+  reviewRequestedFromViewer: boolean;
+  automation: boolean;
+  renovate: boolean;
+  elevatedAutomation: boolean;
+  ignored: boolean;
 };
 
 export type PipelineRun = {
@@ -65,6 +103,30 @@ export type PipelineRun = {
   updatedAt: string;
   actor: string;
   actorAvatar: string | null;
+  commitSha: string | null;
+  commitMessage: string | null;
+  commitAuthor: string | null;
+  failedJob: string | null;
+  failedStep: string | null;
+  failureSummary: string | null;
+  blocksPullRequest: number | null;
+  defaultBranch: boolean;
+};
+
+export type WorkflowFailure = PipelineRun & {
+  repository: string;
+  attentionReason: string;
+};
+
+export type DailyBriefingItem = {
+  id: string;
+  type: "review-request" | "pull-assigned" | "pull-approved" | "pull-merged" | "ready-to-merge" | "workflow-failure" | "workflow-recovery" | "issue-assigned";
+  title: string;
+  detail: string;
+  repository: string;
+  timestamp: string;
+  url: string;
+  pullRequest?: number;
 };
 
 export type Repository = {
@@ -92,6 +154,16 @@ export type Repository = {
   issueCount: number;
   udsCommon: { status: UdsCommonStatus; versions: string[] } | null;
   health: "healthy" | "attention" | "unknown";
+  attention: {
+    level: "action-required" | "needs-attention" | "monitor" | "healthy" | "unknown";
+    reason: string;
+  };
+  workflowCounts: {
+    waitingOnMe: number;
+    waitingOnOthers: number;
+    blocked: number;
+    readyToMerge: number;
+  };
   pipeline: {
     name: string;
     status: string;
@@ -151,6 +223,8 @@ export type ToolRelease = {
   name: string;
   repository: string;
   version: string | null;
+  previousVersion: string | null;
+  publishedAt: string | null;
   url: string;
 };
 
@@ -160,6 +234,7 @@ export type Overview = {
     sonic: boolean;
     testLab: boolean;
     gitlab: boolean;
+    gitlabTickets: boolean;
   };
   metrics: {
     repositories: number;
@@ -174,6 +249,10 @@ export type Overview = {
     issueCount: number;
     pipelineFailures: number;
     repositoriesRequiringAttention: number;
+    waitingOnMe: number;
+    waitingOnOthers: number;
+    blockedPullRequests: number;
+    readyToMerge: number;
   };
   udsCommon: {
     latestVersion: string | null;
@@ -196,17 +275,30 @@ export type Overview = {
   tools: {
     zarf: ToolRelease;
     pepr: ToolRelease;
+    udsCli: ToolRelease;
   };
   pullRequests: (PullRequest & { repository: string })[];
   unassignedPullRequests: (PullRequest & { repository: string })[];
   reviewRequests: (PullRequest & { repository: string })[];
+  myWork: {
+    waitingOnMe: (PullRequest & { repository: string })[];
+    waitingOnOthers: (PullRequest & { repository: string })[];
+    blocked: (PullRequest & { repository: string })[];
+    readyToMerge: (PullRequest & { repository: string })[];
+    needsOwnership: (PullRequest & { repository: string })[];
+    assignedIssues: (Issue & { repository: string })[];
+  };
+  briefing: {
+    availableSince: string;
+    items: DailyBriefingItem[];
+  };
+  workflowFailures: WorkflowFailure[];
   renovate: {
     total: number;
     unassignedTotal: number;
     pulls: (PullRequest & { repository: string })[];
   };
   repositories: Repository[];
-  rateLimit: { remaining: number; limit: number; resetsAt: string };
   generatedAt: string;
 };
 
@@ -219,6 +311,7 @@ export type Issue = {
   createdAt: string;
   updatedAt: string;
   labels: { name: string; color: string }[];
+  assignees?: string[];
 };
 
 export type GitLabWorkItem = {
@@ -227,6 +320,12 @@ export type GitLabWorkItem = {
   title: string;
   url: string;
   state: string;
+  status: {
+    name: string;
+    color: string;
+    iconName: string;
+    category: string;
+  } | null;
   type: string;
   project: string;
   reference: string;

@@ -493,7 +493,7 @@ PY
     ;;
 
   *)
-    echo 'This SSH key accepts only configured D2D Test Lab workflow actions.' >&2
+    echo 'This SSH key accepts only configured UDS Scout Test Lab workflow actions.' >&2
     exit 126
     ;;
 esac

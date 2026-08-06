@@ -1,18 +1,18 @@
-# D2D Operations
+# UDS Scout
 
-A local-first, read-only engineering console for explicitly selected GitHub repositories, with optional GitLab and repository-specific operational integrations.
+A local-first engineering console with read-only monitoring for explicitly selected GitHub repositories, optional Gitlab work items, and tightly scoped operational workflows.
 
 ## Stack
 
 - **Next.js 16** — frontend and backend in one local process
 - **React 19 + TypeScript** — dashboard UI and type safety
 - **GitHub REST API** — live repository, issue, PR, and Actions data
-- **GitLab REST API** — optional open work items assigned to the connected GitLab user
+- **Gitlab REST API** — optional open work items assigned to the connected Gitlab user in explicitly selected projects
 - **AWS Cloudscape Design System** — accessible console components and layout patterns
 - **Minimal custom CSS** — limited to layout adjustments and attention states
-- **In-memory cache** — 60-second GitHub and GitLab API cache; no database required
+- **In-memory cache** — 60-second GitHub and Gitlab API cache; no database required
 
-GitHub and GitLab tokens are read only by Next.js server routes. They are never included in browser JavaScript or API responses. When `GITHUB_TOKEN` is not set, the local setup screen can validate a token and retain it in server memory for the current app session. The server binds to `127.0.0.1` by default so private work data is not exposed to the local network.
+GitHub and Gitlab tokens are read only by Next.js server routes. They are never included in browser JavaScript or API responses. When an environment token is not set, the local setup screen can validate a token and retain it in server memory for the current app session. The server binds to `127.0.0.1` by default so private work data is not exposed to the local network.
 
 ## Run locally
 
@@ -22,7 +22,7 @@ The project uses [Task](https://taskfile.dev/) through `Taskfile.yml`. On macOS,
 brew install go-task
 ```
 
-Start D2D Operations with:
+Start UDS Scout with:
 
 ```bash
 task start
@@ -30,7 +30,7 @@ task start
 
 The task installs dependencies when needed, loads `GITHUB_TOKEN` and `GITLAB_TOKEN` from `~/.zshrc`, and starts the development server. Open [http://127.0.0.1:3001](http://127.0.0.1:3001). Use `Ctrl+C` to stop it and `task --list` to see all available tasks.
 
-D2D Operations opens the two-step local setup flow on first boot. If `GITHUB_TOKEN` is already available, the first step confirms **GitHub token found** without exposing its value; the operator then continues to repository selection. Tokens entered in the browser are held only in server memory and must be entered again after the app process restarts. Repository selections are stored at `~/.config/d2d-operations/settings.json` with local-user permissions. Open **Workspace settings** from the side navigation to change the selection or use **Run setup again** to replay the first-run workflow without clearing the active workspace until a new selection is saved.
+UDS Scout opens the two-step local setup flow on first boot. If `GITHUB_TOKEN` is already available, the first step confirms **GitHub token found** without exposing its value; the operator then continues to repository selection. Tokens entered in the browser are held only in server memory and must be entered again after the app process restarts. Repository selections are stored at `~/.config/uds-scout/settings.json` with local-user permissions. Existing `~/.config/d2d-operations/settings.json` settings continue to load automatically. Open **Workspace settings** from the side navigation to change the selection or use **Run setup again** to replay the first-run workflow without clearing the active workspace until a new selection is saved.
 
 To run the underlying commands manually:
 
@@ -88,7 +88,8 @@ For unattended restarts or optional GitLab integration, use the documented envir
 - Local first-run setup with server-only GitHub token validation and explicit managed-repository selection
 - Action-oriented operational overview with a time-based greeting and browser-local card ordering
 - Latest Zarf and Pepr release cards with direct release details
-- Optional assigned GitLab work item table with direct links to each item and the filtered GitLab board
+- Optional assigned GitLab work item table with direct links, custom workflow statuses, and the filtered GitLab board
+- Staged Gitlab ticket batches with full review, explicit confirmation, one server-allowlisted project per batch, optional validated project labels, and individual creation results
 - UDS Packages repository count card and searchable, sortable, paginated organization catalog with contributor totals
 - Open pull request and issue totals
 - Pipeline health and failure alerts
@@ -105,7 +106,7 @@ For unattended restarts or optional GitLab integration, use the documented envir
 - Optional UDS configuration and bundle explorer connecting Terraform outputs to generated configuration and ordered packages without exposing secret values
 - Responsive Cloudscape console interface
 
-All features are read-only. Deeper investigation links back to GitHub or GitLab.
+GitHub behavior remains read-only. The only Gitlab mutation is explicitly confirmed ticket creation in one saved, server-revalidated project per batch. Deeper investigation links back to GitHub or Gitlab.
 
 ## Frontend structure
 
@@ -129,6 +130,7 @@ Keep feature-specific UI in its focused module instead of growing the applicatio
 - `GET /api/github/uds-packages` — repositories visible in the `uds-packages` organization
 - `GET /api/github/uds-packages/contributors` — cached contributor totals for the organization catalog
 - `GET /api/gitlab/work-items` — open work assigned to the current GitLab token user
+- `POST /api/gitlab/tickets` — create a validated batch of issues with optional labels in one selected, server-allowlisted Gitlab project
 - `GET /api/test-lab` — repositories, branches, validated deployment plans, and live session status
 - `POST /api/test-lab` — start an allowlisted `dev` deployment, remove its generated bundle, or clear a completed session
 
@@ -149,4 +151,5 @@ Good next pieces, each independently buildable:
 3. Failing workflow queue
 4. Release and dependency health
 5. Local SQLite preferences and snapshots
-6. Optional GitHub write actions with explicit confirmation
+6. Opt-in remote environments with generated restricted SSH keys, host-key verification, an allowlisted runner, aggregate host and Kubernetes monitoring, dynamic Test Lab setup, and future AWS Systems Manager or EC2 support
+7. Optional GitHub write actions with explicit confirmation

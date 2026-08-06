@@ -1,7 +1,7 @@
 import type { InfrastructureNode } from "./infrastructure-types";
-import type { Issue, Overview, PipelineRun, PullRequest, Repository } from "./types";
+import type { Issue, Overview, PipelineRun, PullRequest, Repository, WorkflowFailure } from "./types";
 
-export type ConsoleView = "overview" | "pull-requests" | "renovate" | "uds-packages" | "infrastructure" | "test-lab" | "repository";
+export type ConsoleView = "overview" | "pull-requests" | "renovate" | "gitlab-tickets" | "uds-packages" | "infrastructure" | "test-lab" | "repository";
 
 export type DrawerSelection =
   | { type: "open-pulls"; repository?: string; unassignedOnly?: boolean }
@@ -9,6 +9,9 @@ export type DrawerSelection =
   | { type: "review-requests"; repository?: string }
   | { type: "issues"; repository?: string }
   | { type: "pipelines"; repository?: string }
+  | { type: "workflow-failure"; failure: WorkflowFailure }
+  | { type: "my-work"; queue: "waiting-on-me" | "waiting-on-others" | "blocked" | "ready-to-merge" | "needs-ownership" | "assigned-issues" }
+  | { type: "briefing"; since: string }
   | { type: "uds-versions" }
   | { type: "uds-common"; repository?: string }
   | { type: "uds-core" }
