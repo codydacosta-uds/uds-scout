@@ -5,7 +5,6 @@ import Icon from "@cloudscape-design/components/icon";
 import Link from "@cloudscape-design/components/link";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
-import { TEST_LAB_REPOSITORIES } from "@/lib/repository-constants";
 import type { Overview, PipelineRun, PullRequest, Repository, UdsCommonRepository } from "./types";
 
 export function relativeTime(date: string | null, generatedAt: string) {
@@ -24,22 +23,6 @@ export function newestPulls<T extends PullRequest>(pulls: readonly T[]) {
   return [...pulls].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-export function canTestPullRequest(pull: PullRequest, repository: string | undefined) {
-  if (!repository || !TEST_LAB_REPOSITORIES.some((candidate) => candidate.toLowerCase() === repository.toLowerCase())) return false;
-  return !pull.headRepository || pull.headRepository.toLowerCase() === repository.toLowerCase();
-}
-
-export function pullRequestTestLabHref(pull: PullRequest, repository: string) {
-  const query = new URLSearchParams({
-    repository,
-    branch: pull.head,
-    workflow: "build-deploy-test",
-    confirm: "true",
-    pullRequest: String(pull.number),
-  });
-  return `/test-lab?${query.toString()}`;
-}
-
 const drawerPrimaryActionStyle = {
   root: {
     background: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
@@ -50,18 +33,6 @@ const drawerPrimaryActionStyle = {
 
 export function DrawerPrimaryButton(props: ButtonProps) {
   return <Button {...props} variant="primary" style={drawerPrimaryActionStyle} />;
-}
-
-const testLabActionStyle = {
-  root: {
-    background: { default: "#238636", hover: "#2ea043", active: "#1f6f32" },
-    borderColor: { default: "#2ea043", hover: "#3fb950", active: "#238636" },
-    color: { default: "#ffffff", hover: "#ffffff", active: "#ffffff" },
-  },
-} as const;
-
-export function TestInLabButton({ onClick, disabled = false, children = "Test in lab" }: { onClick: () => void; disabled?: boolean; children?: React.ReactNode }) {
-  return <Button variant="primary" iconName="bug" style={testLabActionStyle} disabled={disabled} onClick={onClick}>{children}</Button>;
 }
 
 export function pipelineFailed(conclusion: string | null | undefined) {

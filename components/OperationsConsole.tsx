@@ -34,10 +34,9 @@ import { GitLabTicketComposer } from "./GitLabTicketComposer";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
 import { OperationsDrawer } from "./OperationsDrawer";
 import { OverviewPage } from "./OverviewPage";
-import { TestLab } from "./TestLab";
 import type { InfrastructureExplorerData } from "./infrastructure-types";
 import type { ConsoleView, DrawerSelection } from "./operations-types";
-import { canTestPullRequest, EmptyState, MetricCard, newestPulls, pipelineFailed, pullWorkflowStatus, PullAuthor, PullPeople, pullRequestTestLabHref, relativeTime, repositoryHealth, runStatus, TestInLabButton, udsCommonStatus, UdsCoreVersion } from "./operations-ui";
+import { EmptyState, MetricCard, newestPulls, pipelineFailed, pullWorkflowStatus, PullAuthor, PullPeople, relativeTime, repositoryHealth, runStatus, udsCommonStatus, UdsCoreVersion } from "./operations-ui";
 import type { GitLabWorkItems, OrganizationRepository, Overview, PullRequest, Repository, RepositoryCatalog, RepositoryContributorCounts, RepositoryWorkspace } from "./types";
 
 type Props = {
@@ -307,7 +306,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     };
   }, []);
 
-  const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "gitlab-tickets" ? "/gitlab/tickets" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : view === "test-lab" ? "/test-lab" : `/repositories/${repositoryName ?? ""}`;
+  const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "gitlab-tickets" ? "/gitlab/tickets" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : `/repositories/${repositoryName ?? ""}`;
   const repositoryItems = (overview?.repositories ?? []).map((repository) => ({
     type: "link" as const,
     text: repository.name,
@@ -330,7 +329,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         { type: "link", text: "Renovate updates", href: "/renovate", icon: <Icon name="status-warning" />, info: overview?.renovate.total ? <Badge color="severity-medium">{overview.renovate.total}</Badge> : undefined },
         ...(overview?.capabilities.gitlabTickets ? [{ type: "link" as const, text: "Create Gitlab tickets", href: "/gitlab/tickets", icon: <Icon name="add-plus" /> }] : []),
         ...(overview?.capabilities.sonic ? [{ type: "link" as const, text: "Infrastructure Explorer", href: "/infrastructure", icon: <Icon name="share" /> }] : []),
-        ...(overview?.capabilities.testLab ? [{ type: "link" as const, text: "Test Lab", href: "/test-lab", icon: <Icon name="bug" /> }] : []),
         { type: "divider" },
         { type: "section", text: "Tracked repositories", items: repositoryItems },
         ...(overview?.capabilities.sonic ? [
@@ -393,17 +391,15 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   } else if (view === "overview") {
     content = <OverviewPage overview={overview} refreshing={loading} refreshError={error} gitLabWorkItems={gitLabWorkItems} gitLabLoading={gitLabLoading} gitLabError={gitLabError} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   } else if (view === "pull-requests") {
-    content = <PullRequestsPage overview={overview} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <PullRequestsPage overview={overview} openDrawer={openDrawer} />;
   } else if (view === "renovate") {
-    content = <RenovatePage overview={overview} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <RenovatePage overview={overview} openDrawer={openDrawer} />;
   } else if (view === "gitlab-tickets") {
     content = overview.capabilities.gitlabTickets
       ? <GitLabTicketComposer />
       : <EmptyState title="Gitlab ticket creation is unavailable" detail="Configure the Gitlab integration before creating tickets." />;
   } else if (view === "uds-packages") {
     content = <UdsPackagesCatalogPage overview={overview} catalog={repositoryCatalog} contributorCounts={repositoryContributorCounts} loading={repositoryCatalogLoading} contributorsLoading={repositoryContributorsLoading} error={repositoryCatalogError} contributorsError={repositoryContributorsError} />;
-  } else if (view === "test-lab") {
-    content = <TestLab />;
   } else if (view === "infrastructure") {
     content = infrastructureLoading && !infrastructure
       ? <Box textAlign="center" padding={{ vertical: "xxxl" }}><SpaceBetween size="m"><Spinner size="large" /><Box color="text-body-secondary">Analyzing Terraform configuration and relationships…</Box></SpaceBetween></Box>
@@ -429,7 +425,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       </div>
       <AppLayout
         headerSelector="#top-navigation"
-        contentType={view === "overview" || view === "infrastructure" || view === "test-lab" ? "dashboard" : view === "gitlab-tickets" ? "form" : "table"}
+        contentType={view === "overview" || view === "infrastructure" ? "dashboard" : view === "gitlab-tickets" ? "form" : "table"}
         navigation={navigation}
         navigationOpen={navigationOpen}
         onNavigationChange={({ detail }) => setNavigationOpen(detail.open)}
@@ -505,7 +501,7 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   "pull-requests": {
     title: "Open pull requests",
     summary: "A selected-repository workflow queue showing authors, ownership, approvals, checks, blockers, and who each pull request is waiting on.",
-    actions: ["Filter the queue by title, repository, author, or assignee.", "Use Test in lab on eligible package pull requests to prefill and validate the source branch.", "Open a pull request drawer before continuing to GitHub."],
+    actions: ["Filter the queue by title, repository, author, or assignee.", "Open a pull request drawer before continuing to GitHub."],
   },
   renovate: {
     title: "Renovate updates",
@@ -527,11 +523,6 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
     summary: "A comprehension-first inventory of SONIC Terraform resources and parsed dependencies.",
     actions: ["Select a resource to inspect purpose, ownership, relationships, and implementation details.", "Treat dependency links as parsed references, not file-proximity assumptions."],
   },
-  "test-lab": {
-    title: "Test Lab",
-    summary: "A controlled workflow for deploying a selected package branch to the existing k3d-uds cluster on zeus.",
-    actions: ["Choose one package flavor declared by the selected branch, then use Deploy only for manual inspection or Deploy and test for repository-defined checks.", "Use Container images for an on-demand, bundle-scoped view of image tags and runtime digests.", "Watch the State, UDS output, and cluster workloads; remove the bundle when finished."],
-  },
   repository: {
     title: "Repository workspace",
     summary: "Operational details for one tracked repository, including pull requests, issues, pipelines, and version alignment.",
@@ -552,13 +543,11 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
 
         <ExpandableSection headerText="Feature guide">
         <h4>Work queues</h4>
-        <p>The top navigation keeps a local-time countdown for the next SONIC maintenance window visible across all pages. It is anchored to Tuesday, August 11, 2026 at 5:00 PM and repeated every 14 days; it remains active until 11:59 PM. Pull request, Renovate, issue, pipeline, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Eligible package pull requests can open Test Lab with the repository and source branch preselected; the operator still confirms before execution. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
+        <p>The top navigation keeps a local-time countdown for the next SONIC maintenance window visible across all pages. It is anchored to Tuesday, August 11, 2026 at 5:00 PM and repeated every 14 days; it remains active until 11:59 PM. Pull request, Renovate, issue, pipeline, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
         <h4>Repository health and versions</h4>
         <p>Repository pages combine current work with latest pipeline health. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
         <h4>Infrastructure knowledge</h4>
         <p>Infrastructure Explorer translates Terraform into an inventory and dependency view. Expand implementation details only when Terraform addresses or source mechanics are needed.</p>
-        <h4>Test Lab and Zeus</h4>
-        <p>Test Lab shows read-only Zeus CPU, load, memory, disk, <code>/tmp</code>, and uptime telemetry and resolves a selected branch to an exact commit. When its <code>zarf.yaml</code> declares package flavors, the operator chooses one flavor for the run. Deploy only runs <code>uds run dev</code>. Deploy and test builds that flavor, deploys the test bundle, creates the test user, and runs <code>test:all</code>. Cleanup completes before another flavor can be selected. Container images opens a filtered inventory for packages declared by that exact bundle.</p>
       </ExpandableSection>
 
       <ExpandableSection headerText="Connections and data flow">
@@ -567,32 +556,27 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
           <li>Server routes call the GitHub REST API for the configured operational repositories and the explicitly requested uds-packages organization catalog. The GitHub token never enters browser data.</li>
           <li>The Gitlab server route uses the operator&apos;s token to load only open work assigned to that Gitlab user. The token never enters browser data.</li>
           <li>Infrastructure analysis retrieves SONIC Terraform source through the server and parses resources and references locally.</li>
-          <li>Test Lab sends validated repository, branch, package flavor, and workflow selections through a forced-command SSH key to the allowlisted runner on <code>zeus</code>. The same runner exposes one fixed read-only host-status action for overview telemetry.</li>
-          <li>The runner uses its dedicated kubeconfig for the existing <code>k3d-uds</code> context and reports UDS logs and Kubernetes workloads back to the UI.</li>
         </ol>
       </ExpandableSection>
 
       <ExpandableSection headerText="Refresh and status behavior">
         <ul>
-          <li>GitHub operational data and assigned Gitlab work refresh every 60 seconds and on page reload. Current content stays visible while fresh data loads in the background. Repository contributor totals use a longer server cache to avoid repeatedly scanning the full organization. Zeus host telemetry refreshes every 60 seconds while Test Lab is open. The refresh icon requests an immediate update.</li>
+          <li>GitHub operational data and assigned Gitlab work refresh every 60 seconds and on page reload. Current content stays visible while fresh data loads in the background. Repository contributor totals use a longer server cache to avoid repeatedly scanning the full organization. The refresh icon requests an immediate update.</li>
           <li>In-memory and browser caching keep route transitions stable and avoid unnecessary requests.</li>
-          <li>Test Lab polls active workflows every four seconds and checks less often while idle. Polling pauses in hidden tabs; closing or reloading the browser does not stop an active workflow.</li>
-          <li>Test Lab State shows building, deployment, testing, success, failure, and cleanup phases. UDS progress may originate from stderr without indicating failure.</li>
           <li>Red indicates an actual failure or unavailable dependency. Yellow indicates attention; blue indicates information or navigation.</li>
         </ul>
       </ExpandableSection>
 
         <ExpandableSection headerText="Safety and operator responsibilities">
           <ul>
-            <li>Full operational monitoring remains limited to the tracked repository configuration. The UDS Packages catalog is read-only metadata; catalog-only repositories are not treated as managed. SONIC is excluded from Test Lab package deployment.</li>
+            <li>Full operational monitoring remains limited to the tracked repository configuration. The UDS Packages catalog is read-only metadata; catalog-only repositories are not treated as managed.</li>
             <li>UDS Scout never mutates GitHub. Gitlab writes are limited to the staged, reviewed, and explicitly confirmed ticket batch workflow; API quota and credentials are never exposed.</li>
-            <li>Test Lab cannot accept arbitrary commands or task names and cannot create, start, replace, or delete a cluster.</li>
             <li>A successful or partially deployed test bundle must be removed with <strong>Remove deployment</strong>. Cleanup uses the exact artifact created by that session.</li>
             <li>If the cluster or GitHub is unavailable, the affected action is blocked rather than silently using stale assumptions.</li>
           </ul>
         </ExpandableSection>
 
-        <Box color="text-body-secondary">UDS Scout is local-first. GitHub access is read-only, Gitlab ticket creation requires explicit confirmation, and Test Lab is restricted to explicit deployment workflows.</Box>
+        <Box color="text-body-secondary">UDS Scout is local-first. GitHub access is read-only, and Gitlab ticket creation requires explicit confirmation.</Box>
       </SpaceBetween>
     </Drawer>
   );
@@ -840,28 +824,20 @@ function UdsPackagesCatalogPage({ overview, catalog, contributorCounts, loading,
   );
 }
 
-function PullRequestsPage({ overview, openDrawer, navigate }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void; navigate: (href: string) => void }) {
+function PullRequestsPage({ overview, openDrawer }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void }) {
   const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "pull-requests:filter"), "", isString);
-  const [selectedPulls, setSelectedPulls] = useState<Array<PullRequest & { repository: string }>>([]);
   const items = overview.pullRequests.filter((pull) => {
     const query = filter.toLowerCase();
     return !query || pull.title.toLowerCase().includes(query) || pull.repository.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query));
   });
-  const selectedPull = selectedPulls[0] ?? null;
-
   return (
     <ContentLayout header={<Header variant="h1" description="Open changes awaiting review across tracked repositories." counter={`(${overview.pullRequests.length})`}>Open pull requests</Header>}>
       <Table
-        className="selection-table-aligned"
         variant="container"
         trackBy="id"
         items={items}
-        selectionType="single"
-        selectedItems={selectedPulls}
-        onSelectionChange={({ detail }) => setSelectedPulls(detail.selectedItems)}
-        isItemDisabled={(item) => !canTestPullRequest(item, item.repository)}
-        filter={<TextFilter filteringText={filter} onChange={({ detail }) => { setFilter(detail.filteringText); setSelectedPulls([]); }} filteringPlaceholder="Find pull requests" countText={`${items.length} matches`} />}
-        header={<Header variant="h2" description="Select one eligible pull request to test, or open its title for full details." actions={<TestInLabButton disabled={!selectedPull} onClick={() => { if (selectedPull) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton>}>Pull requests</Header>}
+        filter={<TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find pull requests" countText={`${items.length} matches`} />}
+        header={<Header variant="h2" description="Open a pull request title for workflow details and next actions.">Pull requests</Header>}
         columnDefinitions={[
           { id: "title", header: "Pull request", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number}</Box></SpaceBetween> },
           { id: "repository", header: "Repository", cell: (item) => <Link href={`/repositories/${item.repository}`} onFollow={(event) => { const repository = overview.repositories.find((candidate) => candidate.fullName === item.repository); if (repository) { event.preventDefault(); openDrawer({ type: "repository", repository }); } }}>{item.repository}</Link> },
@@ -878,11 +854,10 @@ function PullRequestsPage({ overview, openDrawer, navigate }: { overview: Overvi
   );
 }
 
-function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void; navigate: (href: string) => void }) {
+function RenovatePage({ overview, openDrawer }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void }) {
   const queryRepository = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("repository") ?? "all" : "all";
   const [repository, setRepository] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:repository"), queryRepository, isString, queryRepository !== "all");
   const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:filter"), "", isString);
-  const [selectedUpdates, setSelectedUpdates] = useState<Array<PullRequest & { repository: string }>>([]);
   const options = [{ label: `All repositories (${overview.renovate.total})`, value: "all" }, ...overview.repositories.map((item) => ({ label: `${item.fullName} (${item.renovatePulls})`, value: item.fullName }))];
   const selectedOption = options.find((option) => option.value === repository) ?? options[0];
   const activeRepository = selectedOption.value;
@@ -890,9 +865,6 @@ function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; 
     const query = filter.toLowerCase();
     return (activeRepository === "all" || pull.repository === activeRepository) && (!query || pull.title.toLowerCase().includes(query) || pull.head.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query)));
   }));
-  const selectedUpdate = selectedUpdates[0] ?? null;
-  const selectedUpdateCanTest = Boolean(selectedUpdate && canTestPullRequest(selectedUpdate, selectedUpdate.repository));
-
   return (
     <ContentLayout
       header={<Header variant="h1" description="Open dependency updates created by Renovate from a renovate/* source branch." counter={`(${overview.renovate.total})`}>Renovate updates</Header>}
@@ -904,16 +876,11 @@ function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; 
           content: `${overview.renovate.total} open ${overview.renovate.total === 1 ? "update is" : "updates are"} shown below. Only observable blockers, direct assignment or review requests, and configured priority labels elevate an update on the overview.`,
         }]} /> : null}
         <Table
-          className="selection-table-aligned"
           variant="container"
           trackBy="id"
           items={items}
-          selectionType="single"
-          selectedItems={selectedUpdates}
-          onSelectionChange={({ detail }) => setSelectedUpdates(detail.selectedItems)}
-          isItemDisabled={(item) => !canTestPullRequest(item, item.repository)}
-          filter={<div className="table-filters"><TextFilter filteringText={filter} onChange={({ detail }) => { setFilter(detail.filteringText); setSelectedUpdates([]); }} filteringPlaceholder="Find dependency updates" countText={`${items.length} matches`} /><Select selectedOption={selectedOption} onChange={({ detail }) => { setRepository(detail.selectedOption.value ?? "all"); setSelectedUpdates([]); }} options={options} /></div>}
-          header={<Header variant="h2" description="Newest opened first. Select one eligible update to test, or open its title for full details." actions={<TestInLabButton disabled={!selectedUpdateCanTest} onClick={() => { if (selectedUpdate) navigate(pullRequestTestLabHref(selectedUpdate, selectedUpdate.repository)); }}>Test</TestInLabButton>}>Dependency update inbox</Header>}
+          filter={<div className="table-filters"><TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find dependency updates" countText={`${items.length} matches`} /><Select selectedOption={selectedOption} onChange={({ detail }) => setRepository(detail.selectedOption.value ?? "all")} options={options} /></div>}
+          header={<Header variant="h2" description="Newest opened first. Open an update title for workflow details.">Dependency update inbox</Header>}
           columnDefinitions={[
             { id: "update", header: "Update", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }} fontSize="body-m">{item.title}</Link><Box color="text-body-secondary">PR #{item.number}</Box></SpaceBetween> },
             { id: "repository", header: "Repository", cell: (item) => <Link href={`/repositories/${item.repository}`} onFollow={(event) => { const repository = overview.repositories.find((candidate) => candidate.fullName === item.repository); if (repository) { event.preventDefault(); openDrawer({ type: "repository", repository }); } }}>{item.repository}</Link> },
@@ -929,28 +896,19 @@ function RenovatePage({ overview, openDrawer, navigate }: { overview: Overview; 
   );
 }
 
-function RepositoryPullRequestTable({ items, title, repository, referenceTime, openDrawer, navigate }: {
+function RepositoryPullRequestTable({ items, title, repository, referenceTime, openDrawer }: {
   items: PullRequest[];
   title: string;
   repository: string;
   referenceTime: string;
   openDrawer: (selection: DrawerSelection) => void;
-  navigate: (href: string) => void;
 }) {
-  const [selectedPulls, setSelectedPulls] = useState<PullRequest[]>([]);
-  const selectedPull = selectedPulls[0] ?? null;
-
   return (
     <Table
-      className="selection-table-aligned"
       variant="container"
       trackBy="id"
       items={items}
-      selectionType="single"
-      selectedItems={selectedPulls}
-      onSelectionChange={({ detail }) => setSelectedPulls(detail.selectedItems)}
-      isItemDisabled={(item) => !canTestPullRequest(item, repository)}
-      header={<Header variant="h2" counter={`(${items.length})`} description="Select one eligible pull request to test, or open its title for full details." actions={<TestInLabButton disabled={!selectedPull} onClick={() => { if (selectedPull) navigate(pullRequestTestLabHref(selectedPull, repository)); }}>Test</TestInLabButton>}>{title}</Header>}
+      header={<Header variant="h2" counter={`(${items.length})`} description="Open a pull request title for workflow details.">{title}</Header>}
       columnDefinitions={[
         { id: "title", header: "Pull request", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number}</Box></SpaceBetween> },
         { id: "author", header: "Author", cell: (item) => <PullAuthor pull={item} /> },
@@ -1034,8 +992,8 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, loadi
               id: "overview",
               content: <SpaceBetween size="l"><Container header={<Header variant="h2">Repository status</Header>}><KeyValuePairs columns={3} items={[{ label: "Operational status", value: repositoryHealth(repository) }, { label: "Default branch", value: repository.defaultBranch }, { label: "Visibility", value: repository.visibility }, { label: "Primary language", value: repository.language ?? "Not detected" }, { label: "Last repository update", value: relativeTime(repository.updatedAt, overview.generatedAt) }, { label: "UDS Common", value: udsCommonStatus(repository.udsCommon) }, { label: "UDS Core version", value: repository.fullName === overview.udsCore.repository ? <UdsCoreVersion udsCore={overview.udsCore} /> : "Managed outside this repository" }]} /></Container>{relatedResources}</SpaceBetween>,
             },
-            { label: "Pull requests", id: "pull-requests", content: <RepositoryPullRequestTable items={workspace.pulls.open} title="Open pull requests" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} navigate={navigate} /> },
-            { label: "Renovate updates", id: "renovate", content: <RepositoryPullRequestTable items={renovatePulls} title="Renovate updates" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} navigate={navigate} /> },
+            { label: "Pull requests", id: "pull-requests", content: <RepositoryPullRequestTable items={workspace.pulls.open} title="Open pull requests" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} /> },
+            { label: "Renovate updates", id: "renovate", content: <RepositoryPullRequestTable items={renovatePulls} title="Renovate updates" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} /> },
             {
               label: "Issues",
               id: "issues",

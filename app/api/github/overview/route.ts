@@ -12,7 +12,7 @@ import {
 import { loadRepositoryOperations, type RecentMergedPull } from "@/lib/github-operations";
 import { gitlabRequest, gitlabTokenStatus, type GitlabViewer } from "@/lib/gitlab";
 import { readLocalSettings } from "@/lib/local-settings";
-import { SONIC_REPOSITORY, TEST_LAB_REPOSITORIES } from "@/lib/repository-constants";
+import { SONIC_REPOSITORY, TEST_LAB_ENABLED, TEST_LAB_REPOSITORIES } from "@/lib/repository-constants";
 import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
 import { trackedRepositories } from "@/lib/tracked-repositories";
 import { parseUdsCommonIncludes } from "@/lib/uds-common";
@@ -211,7 +211,7 @@ export async function GET() {
     const gitlabConfigured = gitlabTokenStatus().configured && Boolean(await gitlabRequest<GitlabViewer>("/user", 5 * 60_000).catch(() => null));
     const trackedNames = new Set(tracked.map((repository) => repository.toLowerCase()));
     const hasSonic = trackedNames.has(SONIC_REPOSITORY.toLowerCase());
-    const hasTestLabRepository = TEST_LAB_REPOSITORIES.some((repository) => trackedNames.has(repository.toLowerCase()));
+    const hasTestLabRepository = TEST_LAB_ENABLED && TEST_LAB_REPOSITORIES.some((repository) => trackedNames.has(repository.toLowerCase()));
     const repositories = await Promise.all(tracked.map((repository) => githubRequest<RawRepo>(`/repos/${repository}`)));
 
     const operationalGroups: OperationalGroup[] = await Promise.all(repositories.map(async (repository) => {

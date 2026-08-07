@@ -1,7 +1,7 @@
 import type { InfrastructureNode } from "./infrastructure-types";
 import type { Issue, Overview, PipelineRun, PullRequest, Repository, WorkflowFailure } from "./types";
 
-export type ConsoleView = "overview" | "pull-requests" | "renovate" | "gitlab-tickets" | "uds-packages" | "infrastructure" | "test-lab" | "repository";
+export type ConsoleView = "overview" | "pull-requests" | "renovate" | "gitlab-tickets" | "uds-packages" | "infrastructure" | "repository";
 
 export type DrawerSelection =
   | { type: "open-pulls"; repository?: string; unassignedOnly?: boolean }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { TestLabWorkflowMode } from "@/components/test-lab-types";
+import { TEST_LAB_ENABLED } from "@/lib/repository-constants";
 import {
   isManagedTestRepository,
   prepareTestLabSession,
@@ -33,6 +34,10 @@ function failure(error: unknown) {
 }
 
 export async function GET(request: NextRequest) {
+  if (!TEST_LAB_ENABLED) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
   const repository = request.nextUrl.searchParams.get("repository");
   const branch = request.nextUrl.searchParams.get("branch");
   const status = request.nextUrl.searchParams.get("status");
@@ -62,6 +67,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!TEST_LAB_ENABLED) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
   if (!localOrigin(request)) {
     return NextResponse.json({ error: "Test Lab requests are accepted only from the local application." }, { status: 403 });
   }

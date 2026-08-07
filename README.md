@@ -1,61 +1,156 @@
 # UDS Scout
 
-A local-first engineering console with read-only monitoring for explicitly selected GitHub repositories, optional Gitlab work items, and tightly scoped operational workflows.
+UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of repositories. It brings review work, dependency updates, issues, pipeline failures, version alignment, and infrastructure knowledge into one focused interface.
 
-## Stack
+The current release uses GitHub as the primary repository dashboard. GitLab is an optional integration for assigned work items and explicitly confirmed ticket creation; a separate full GitLab operations dashboard is planned rather than mixing providers into one view.
 
-- **Next.js 16** — frontend and backend in one local process
-- **React 19 + TypeScript** — dashboard UI and type safety
-- **GitHub REST API** — live repository, issue, PR, and Actions data
-- **Gitlab REST API** — optional open work items assigned to the connected Gitlab user in explicitly selected projects
-- **AWS Cloudscape Design System** — accessible console components and layout patterns
-- **Minimal custom CSS** — limited to layout adjustments and attention states
-- **In-memory cache** — 60-second GitHub and Gitlab API cache; no database required
+## Supporting UDS package maintainers
 
-GitHub and Gitlab tokens are read only by Next.js server routes. They are never included in browser JavaScript or API responses. When an environment token is not set, the local setup screen can validate a token and retain it in server memory for the current app session. The server binds to `127.0.0.1` by default so private work data is not exposed to the local network.
+UDS Scout is designed to reduce the day-to-day toil of maintaining packages across multiple repositories. Instead of repeatedly opening each repository to reconstruct review state, pipeline health, dependency updates, ownership, and version alignment, maintainers get one prioritized queue built from the repositories they explicitly selected.
+
+Scout helps maintainers:
+
+- Start with work that needs a decision or handoff rather than manually checking every repository.
+- Distinguish routine Renovate updates from dependency changes with failures, conflicts, direct requests, or other observable blockers.
+- Find failed default-branch pipelines and checks blocking pull requests without searching across workflow pages.
+- Track UDS Core and UDS Common alignment without manually comparing every package configuration.
+- Keep detailed investigation in GitHub, GitLab, or the underlying tools while Scout handles collection, normalization, prioritization, and safe handoffs.
+
+Scout does not replace maintainer judgment or silently mutate repositories. It aims to prevent repetitive status-gathering and coordination work so maintainers can spend more time reviewing, testing, and improving UDS packages.
+
+## What UDS Scout can do
+
+### Repository operations
+
+- Monitor up to 25 explicitly selected GitHub repositories without expanding to every repository visible to the token.
+- Build a personalized **My work today** queue from review requests, assignments, blockers, merge-ready pull requests, authored work waiting on others, unowned human pull requests, and assigned issues.
+- Show pull request authors, assignees, requested reviewers, approvals, required checks, mergeability, conflicts, blockers, and who the work is waiting on.
+- Summarize review requests, assignments, approvals, merges, pipeline failures, recoveries, and assigned issues in a concise **Since yesterday** briefing.
+- Provide dedicated pull request, Renovate, repository, issue, and pipeline views with contextual right-side drawers.
+- Refresh operational data every 60 seconds and on page load while retaining cached content during navigation and transient refresh failures.
+
+### Pipelines and dependency updates
+
+- Detect unresolved GitHub Actions failures across selected repositories.
+- Prioritize default-branch failures and failures known to block an open pull request.
+- Show failed jobs and steps when GitHub provides them, while leaving full logs in GitHub.
+- Identify Renovate pull requests only when Renovate authored them from a `renovate/*` source branch.
+- Separate routine Renovate updates from updates with observable blockers, direct requests, conflicts, failed required checks, or configured priority labels.
+- Provide an operator-configurable weekly Renovate review table with failed, running, passed, and no-check filters.
+
+### UDS and repository health
+
+- Compare the UDS Core version configured by SONIC with the latest `defenseunicorns/uds-core` release using semantic versioning.
+- Inspect root `tasks.yaml` files for UDS Common includes and identify current, outdated, missing, or unverifiable configurations.
+- Show current Zarf, Pepr, and UDS CLI releases.
+- Browse the UDS Packages organization through a searchable, sortable, paginated catalog with contributor totals.
+
+### Infrastructure Explorer
+
+When `nswccd-devsecops/sonic-swf-iac` is selected, the Infrastructure Explorer can:
+
+- Present SONIC Terraform as a plain-English inventory instead of a raw HCL browser.
+- Explain resource purpose, ownership, system, environments, inputs, outputs, and upstream/downstream relationships.
+- Derive dependencies from parsed references rather than file proximity.
+- Separate top-level deployed components, existing data references, and reusable local-module internals.
+- Expose Terraform addresses, implementation details, and source links only when deeper inspection is needed.
+
+### Optional GitLab integration
+
+When a GitLab token is connected, UDS Scout can:
+
+- Select explicit GitLab projects for assigned work-item visibility.
+- Show open work assigned to the connected user, including project, type, custom workflow status, labels, due date, and confidentiality state.
+- Link to the corresponding filtered GitLab work-item board.
+- Stage up to 20 issue drafts locally and review the complete batch before anything is created.
+- Submit a confirmed batch to exactly one selected project after revalidating Developer access and selected labels.
+- Report each issue creation result without automatic retries.
+
+GitLab is not yet a second repository-operations dashboard in this release. GitHub and GitLab data are not presented as a merged provider workspace.
+
+## Safety and data boundaries
+
+- GitHub access is read-only and limited to the configured repository selection.
+- GitLab writes are limited to the staged, reviewed, and explicitly confirmed ticket-composer workflow.
+- GitHub and GitLab tokens are read only by Next.js server code and are never returned in browser API responses.
+- Tokens entered during setup remain in server memory for the current process; environment tokens remain outside persisted Scout settings.
+- Only non-secret workspace preferences are stored locally.
+- No database, webhook service, background worker, or application authentication system is required.
+- Test Lab is not enabled or exposed in this release.
+- The development server binds to `127.0.0.1`. Docker binds to `0.0.0.0` only inside the container and is published on `127.0.0.1` by the documented command.
+
+## Technology
+
+- Next.js 16 and React 19
+- TypeScript
+- AWS Cloudscape Design System
+- GitHub REST and GraphQL APIs
+- GitLab REST and GraphQL APIs
+- Local in-memory request caching
+- Terraform parsing with CDK for Terraform HCL-to-JSON tooling
 
 ## Run locally
 
-The project uses [Task](https://taskfile.dev/) through `Taskfile.yml`. On macOS, install the correct CLI with:
+### Prerequisites
 
-```bash
-brew install go-task
-```
+- Node.js 22 recommended
+- npm
+- A GitHub token with read access to the repositories you intend to select
+- Organization authorization for the token when a selected repository enforces SSO
+- Optional: a GitLab token for selected-project work items and ticket creation
+- Optional: [Task](https://taskfile.dev/) (`brew install go-task` on macOS)
 
-Start UDS Scout with:
+### Start with Task
 
 ```bash
 task start
 ```
 
-The task installs dependencies when needed, loads `GITHUB_TOKEN` and `GITLAB_TOKEN` from `~/.zshrc`, and starts the development server. Open [http://127.0.0.1:3001](http://127.0.0.1:3001). Use `Ctrl+C` to stop it and `task --list` to see all available tasks.
+`task start` installs dependencies when needed, loads the shell environment from `~/.zshrc`, and starts UDS Scout on [http://127.0.0.1:3001](http://127.0.0.1:3001).
 
-UDS Scout opens the two-step local setup flow on first boot. If `GITHUB_TOKEN` is already available, the first step confirms **GitHub token found** without exposing its value; the operator then continues to repository selection. Tokens entered in the browser are held only in server memory and must be entered again after the app process restarts. Repository selections are stored at `~/.config/uds-scout/settings.json` with local-user permissions. Existing `~/.config/d2d-operations/settings.json` settings continue to load automatically. Open **Workspace settings** from the side navigation to change the selection or use **Run setup again** to replay the first-run workflow without clearing the active workspace until a new selection is saved.
-
-To run the underlying commands manually:
+### Start with npm
 
 ```bash
-source ~/.zshrc
 npm install
 npm run dev
 ```
 
-Port 3001 is used because port 3000 is occupied locally.
+The development server uses `127.0.0.1:3001`.
 
-Alternatively, copy `.env.local.example` to `.env.local` and enter the token there. Never commit `.env.local`.
+### Configure the workspace
+
+On first boot:
+
+1. Connect or confirm the required GitHub token.
+2. Optionally connect a GitLab token.
+3. Select the GitHub repositories Scout should monitor.
+4. If GitLab is connected, select the GitLab projects used for assigned work items and choose an optional default ticket project.
+5. Save the workspace and continue to the dashboard.
+
+Tokens entered in the browser are validated by the server and retained only for the current app process. Non-secret selections are stored with local-user permissions at:
+
+```text
+~/.config/uds-scout/settings.json
+```
+
+Existing `~/.config/d2d-operations/settings.json` settings continue to load when the new path does not yet exist. Use **Workspace settings** to manage connections and selections or **Run setup again** to replay setup without clearing the active workspace before a replacement selection is saved.
+
+You can also copy `.env.local.example` to `.env.local`. Never commit `.env.local` or another file containing real credentials.
+
+### Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | Yes, unless entered during setup | Server-only GitHub API token |
+| `GH_TOKEN` | No | Fallback GitHub token name |
+| `GITLAB_TOKEN` | No | Server-only GitLab API token |
+| `GITLAB_URL` | No | GitLab origin; defaults to `https://gitlab.sonic.mil` |
+| `GITHUB_REPOSITORIES` | No | Comma-separated repository override that takes precedence over the saved selection |
+| `UDS_SCOUT_SETTINGS_PATH` | No | Alternate location for non-secret local settings |
 
 ## Run with Docker
 
-### Prerequisites
-
-- Access to this source repository
-- Docker Desktop, OrbStack, or another running Docker-compatible engine
-- [Task](https://taskfile.dev/installation/) installed (`brew install go-task` on macOS)
-- A GitHub token with read access to the repositories the user wants to manage
-- Organization authorization for the token when the selected repositories enforce SSO
-- A GitLab token only when the optional GitLab work-item integration is needed
-
-Clone the repository and start the application:
+Docker runs the standalone production build as a non-root user and persists non-secret workspace settings in a named volume.
 
 ```bash
 git clone https://github.com/codydacosta-uds/d2d-operations.git
@@ -63,93 +158,72 @@ cd d2d-operations
 task docker:start
 ```
 
-Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in the setup screen, and choose repositories. The token remains only in the running server process and must be entered again when the container is replaced. The `d2d-operations-data` volume persists the non-secret repository selection.
+Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in setup, and choose repositories. The token remains only in the running container process. The legacy-named `d2d-operations-data` volume is intentionally retained so existing saved selections survive the UDS Scout rename.
 
-If port 3001 is already in use, run:
+Use another host port when needed:
 
 ```bash
 task docker:start PORT=3002
 ```
 
-Then open `http://127.0.0.1:3002`. The task always publishes on `127.0.0.1`, so the application is not exposed to other network interfaces.
-
 Useful commands:
 
 ```bash
-task docker:logs  # Follow application logs
-task docker:stop  # Remove the container but preserve repository selections
+task docker:logs  # Follow container logs
+task docker:stop  # Remove the container and preserve workspace settings
 ```
 
-For unattended restarts or optional GitLab integration, use the documented environment variables from `.env.local.example` with a protected Docker environment file. Never commit that file or bake tokens into the image.
+For unattended startup, provide tokens to the container at runtime through a protected environment file or secret mechanism. Do not pass credentials as image build arguments or bake them into the image.
 
-## Current MVP
+## Application structure
 
-- Explicit operator-selected managed repositories with no default tracked repository list
-- Local first-run setup with server-only GitHub token validation and explicit managed-repository selection
-- Action-oriented operational overview with a time-based greeting and browser-local card ordering
-- Latest Zarf and Pepr release cards with direct release details
-- Optional assigned GitLab work item table with direct links, custom workflow statuses, and the filtered GitLab board
-- Staged Gitlab ticket batches with full review, explicit confirmation, one server-allowlisted project per batch, optional validated project labels, and individual creation results
-- UDS Packages repository count card and searchable, sortable, paginated organization catalog with contributor totals
-- Open pull request and issue totals
-- Pipeline health and failure alerts
-- Current UDS Core version detection
-- Cross-repository Renovate inbox for open `renovate/*` pull requests
-- Per-repository Renovate counts with 60-second auto-refresh
-- Dedicated repository pages with pull requests, updates, issues, pipelines, infrastructure, and related resources
-- At-a-glance aggregate host health in Test Lab through a restricted, read-only runner
-- Branch-driven Test Lab for eligible UDS package repositories, with fixed deploy-only and deploy-and-test modes, required single-flavor selection, live UDS output and workloads, bundle-scoped image inspection, and exact-bundle cleanup
-- Context-aware operator help covering features, system connection points, refresh behavior, status semantics, and safety responsibilities
-- Eligible package pull requests can open Test Lab with the source branch preselected and the deploy-and-test confirmation ready
-- Capability-based Infrastructure Explorer for supported repositories, including Terraform inventory, ownership, parsed dependencies, plain-English resource details, reusable patterns, providers, environments, inputs, and outputs
-- Optional deployment knowledge derived from repository-defined UDS tasks, including order, operator commands, environment status, source links, and outcomes
-- Optional UDS configuration and bundle explorer connecting Terraform outputs to generated configuration and ordered packages without exposing secret values
-- Responsive Cloudscape console interface
+- `components/OperationsConsole.tsx` — application shell, loading, navigation, caching, and route composition
+- `components/OverviewPage.tsx` — operational overview, browser-local card ordering, repository status, and GitLab work items
+- `components/OperationsDrawer.tsx` — contextual operational detail drawers
+- `components/operations-ui.tsx` — shared status, identity, metric, and formatting components
+- `components/GitLabTicketComposer.tsx` — staged and explicitly confirmed GitLab ticket batches
+- `components/InfrastructureExplorer.tsx` — infrastructure inventory and dependency knowledge UI
+- `lib/github.ts` and `lib/github-operations.ts` — GitHub API access, caching, and workflow inference
+- `lib/gitlab.ts` — GitLab API access, caching, project validation, and controlled mutations
+- `lib/terraform-explorer.ts` — Terraform analysis and dependency inference
 
-GitHub behavior remains read-only. The only Gitlab mutation is explicitly confirmed ticket creation in one saved, server-revalidated project per batch. Deeper investigation links back to GitHub or Gitlab.
+## Server API routes
 
-## Frontend structure
+Primary routes include:
 
-- `components/OperationsConsole.tsx` owns the application shell, data loading, navigation, and route composition.
-- `components/OverviewPage.tsx` owns overview cards, card ordering, repository status, and GitLab work items.
-- `components/OperationsDrawer.tsx` owns contextual detail drawers.
-- `components/operations-ui.tsx` contains shared operational presentation helpers.
-- `components/operations-types.ts` contains shared console and drawer contracts.
-- `components/ReleaseNotes.tsx` renders GitHub release notes safely.
+- `GET /api/setup/status` — connection and local workspace readiness
+- `POST /api/setup/connect` — validate a session GitHub token
+- `POST /api/setup/gitlab/connect` — validate a session GitLab token
+- `GET|POST /api/setup/repositories` — list GitHub repositories and save workspace selections
+- `GET /api/setup/gitlab/projects` — list or validate accessible GitLab projects
+- `GET /api/github/overview` — aggregated GitHub operational dashboard
+- `GET /api/github/repository?repo=owner/repository` — one selected repository workspace
+- `GET /api/github/infrastructure` — SONIC Terraform source analysis
+- `GET /api/github/uds-packages` — UDS Packages repository catalog
+- `GET /api/github/uds-packages/contributors` — cached contributor totals
+- `GET /api/gitlab/work-items` — assigned work from selected GitLab projects
+- `GET /api/gitlab/labels` — labels for one validated GitLab ticket target
+- `POST /api/gitlab/tickets` — explicitly confirmed GitLab issue batch
 
-Keep feature-specific UI in its focused module instead of growing the application shell. Prefer Cloudscape properties and theme tokens over selectors targeting generated Cloudscape class names.
+Credentials are never included in these API responses.
 
-## API routes
+## Validation
 
-- `GET /api/setup/status` — local setup readiness without exposing credentials
-- `POST /api/setup/connect` — validate and retain a session-only GitHub token
-- `GET|POST /api/setup/repositories` — list available repositories and save the managed selection
-- `GET /api/github/overview`
-- `GET /api/github/repository?repo=owner/repository`
-- `GET /api/github/infrastructure`
-- `GET /api/github/uds-packages` — repositories visible in the `uds-packages` organization
-- `GET /api/github/uds-packages/contributors` — cached contributor totals for the organization catalog
-- `GET /api/gitlab/work-items` — open work assigned to the current GitLab token user
-- `POST /api/gitlab/tickets` — create a validated batch of issues with optional labels in one selected, server-allowlisted Gitlab project
-- `GET /api/test-lab` — repositories, branches, validated deployment plans, and live session status
-- `POST /api/test-lab` — start an allowlisted `dev` deployment, remove its generated bundle, or clear a completed session
-
-## Build checks
+Run the same checks expected before merging or releasing:
 
 ```bash
 task check
 ```
 
-The task runs `npm run lint` followed by `npm run build`.
+This runs:
 
-## Incremental roadmap
+```bash
+npm run lint
+npm run build
+```
 
-Good next pieces, each independently buildable:
+## Roadmap
 
-1. Saved repository groups and favorites
-2. Organization-wide PR inbox with reviewer filters
-3. Failing workflow queue
-4. Release and dependency health
-5. Local SQLite preferences and snapshots
-6. Opt-in remote environments with generated restricted SSH keys, host-key verification, an allowlisted runner, aggregate host and Kubernetes monitoring, dynamic Test Lab setup, and future AWS Systems Manager or EC2 support
-7. Optional GitHub write actions with explicit confirmation
+The next major provider change is a separate, first-class GitLab operations dashboard with its own projects, merge requests, pipelines, work queues, navigation, caches, and user identity. It will remain distinct from the GitHub dashboard rather than combining both providers into one operational view.
+
+The controlled Test Lab implementation remains disabled and unexposed until it is ready for a future release.
