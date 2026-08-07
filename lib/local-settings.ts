@@ -1,14 +1,18 @@
 import "server-only";
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { DEFAULT_RENOVATE_REVIEW_DAY, isRenovateReviewDay, type RenovateReviewDay } from "@/lib/renovate-review";
+import { DEFAULT_WORKSPACE_PRESETS, type WorkspacePreset } from "@/lib/repository-constants";
 
 export type LocalSettings = {
   repositories: string[];
   setupCompleted: boolean;
   gitlabProjects: string[];
   gitlabDefaultProject: string | null;
+  renovateReviewDay: RenovateReviewDay;
+  workspacePresets: WorkspacePreset[];
 };
 
 type StoredSettings = Partial<LocalSettings> & {
@@ -38,8 +42,18 @@ function normalize(value: Partial<LocalSettings> | undefined): LocalSettings | n
   const gitlabDefaultProject = requestedDefault && uniqueGitlabProjects.some((project) => project.toLowerCase() === requestedDefault.toLowerCase())
     ? uniqueGitlabProjects.find((project) => project.toLowerCase() === requestedDefault.toLowerCase()) ?? null
     : null;
-  if (value.setupCompleted !== true && !repositories.length && !uniqueGitlabProjects.length) return null;
-  return { repositories: [...new Set(repositories)], setupCompleted: value.setupCompleted === true, gitlabProjects: uniqueGitlabProjects, gitlabDefaultProject };
+  const renovateReviewDay = isRenovateReviewDay(value.renovateReviewDay) ? value.renovateReviewDay : DEFAULT_RENOVATE_REVIEW_DAY;
+  const hasStoredWorkspacePresets = Array.isArray(value.workspacePresets);
+  const presetSource = hasStoredWorkspacePresets ? value.workspacePresets! : DEFAULT_WORKSPACE_PRESETS;
+  const workspacePresets = presetSource.slice(0, 20).flatMap((preset) => {
+    if (!preset || typeof preset.id !== "string" || typeof preset.label !== "string" || !Array.isArray(preset.repositories)) return [];
+    const presetRepositories = [...new Set(preset.repositories.filter((repository): repository is string => typeof repository === "string").map((repository) => repository.trim()).filter(Boolean))].slice(0, 25);
+    const id = preset.id.trim().slice(0, 80);
+    const label = preset.label.trim().slice(0, 60);
+    return id && label && presetRepositories.length ? [{ id, label, repositories: presetRepositories }] : [];
+  });
+  if (value.setupCompleted !== true && !repositories.length && !uniqueGitlabProjects.length && !hasStoredWorkspacePresets) return null;
+  return { repositories: [...new Set(repositories)], setupCompleted: value.setupCompleted === true, gitlabProjects: uniqueGitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets };
 }
 
 function readStoredSettings(): StoredSettings | null {
@@ -59,25 +73,20 @@ export function readLocalSettings(viewer?: string | null): LocalSettings | null 
 }
 
 export function resetLocalSettings(viewer?: string | null) {
-  const path = localSettingsPath();
   const stored = readStoredSettings();
-  if (!stored || !existsSync(path)) return;
+  if (!stored) return;
+  const settings = stored.profiles
+    ? viewer ? normalize(stored.profiles[viewer.toLowerCase()]) : null
+    : normalize(stored);
+  if (!settings) return;
 
-  if (stored.profiles) {
-    if (!viewer || !stored.profiles[viewer.toLowerCase()]) return;
-    const profiles = { ...stored.profiles };
-    delete profiles[viewer.toLowerCase()];
-    if (!Object.keys(profiles).length) {
-      unlinkSync(path);
-      return;
-    }
-    const temporaryPath = `${path}.${process.pid}.tmp`;
-    writeFileSync(temporaryPath, `${JSON.stringify({ profiles }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temporaryPath, path);
-    return;
-  }
-
-  unlinkSync(path);
+  writeLocalSettings({
+    ...settings,
+    repositories: [],
+    setupCompleted: false,
+    gitlabProjects: [],
+    gitlabDefaultProject: null,
+  }, stored.profiles ? viewer : undefined);
 }
 
 export function writeLocalSettings(settings: LocalSettings, viewer?: string | null) {

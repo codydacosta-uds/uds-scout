@@ -104,6 +104,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const [repositoryCatalogLoading, setRepositoryCatalogLoading] = useState(view === "uds-packages" && !cachedRepositoryCatalog);
   const [repositoryContributorsLoading, setRepositoryContributorsLoading] = useState(view === "uds-packages" && !cachedRepositoryContributorCounts);
   const [workspaceLoading, setWorkspaceLoading] = useState(view === "repository" && !repositoryName ? true : view === "repository" && !cachedWorkspaces.has(repositoryName ?? ""));
+  const [workspaceError, setWorkspaceError] = useState<{ repository: string; message: string } | null>(null);
   const [infrastructureLoading, setInfrastructureLoading] = useState(view === "infrastructure" && !cachedInfrastructure);
   const [error, setError] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
@@ -236,6 +237,8 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   useEffect(() => {
     if (view !== "repository" || !repositoryName) return;
     const controller = new AbortController();
+    let active = true;
+    setWorkspaceError(null);
     const cachedWorkspace = cachedWorkspaces.get(repositoryName);
     if (cachedWorkspace) {
       setWorkspace(cachedWorkspace);
@@ -252,13 +255,16 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       })
       .then((data) => {
         cachedWorkspaces.set(repositoryName, data);
-        setWorkspace(data);
+        if (active) setWorkspace(data);
       })
       .catch((reason) => {
-        if (reason.name !== "AbortError") setError(reason.message);
+        if (active && reason.name !== "AbortError") setWorkspaceError({ repository: repositoryName, message: reason.message });
       })
-      .finally(() => setWorkspaceLoading(false));
-    return () => controller.abort();
+      .finally(() => { if (active) setWorkspaceLoading(false); });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [view, repositoryName, refreshKey]);
 
   useEffect(() => {
@@ -353,9 +359,11 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const notifications = initialLoadWarningVisible || (error && !errorDismissed) ? (
     <Flashbar items={[
       ...(initialLoadWarningVisible ? [{
-        type: "warning" as const,
-        header: "Your first dashboard load may take a few moments",
-        content: "Scout is checking pull requests, pipelines, releases, and package health across your selected repositories. Workspaces with more repositories can take longer to load.",
+        type: loading ? "info" as const : "success" as const,
+        header: loading ? "Dashboard update in progress" : "Dashboard updated",
+        content: loading
+          ? "Scout is refreshing the homepage with your repository changes. Pull requests, pipelines, releases, and package health may take a few moments to update."
+          : "The homepage now reflects your saved repository selection.",
         dismissible: true,
         onDismiss: () => {
           setInitialLoadWarningVisible(false);
@@ -404,7 +412,9 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         : <EmptyState title="Infrastructure analysis is unavailable" detail="Confirm the Terraform source is available and try again." />;
   } else {
     const repositoryOverview = overview.repositories.find((item) => item.fullName === repositoryName);
-    content = <RepositoryPage overview={overview} repository={repositoryOverview} workspace={workspace} loading={workspaceLoading} error={error} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    const workspaceMatchesRepository = Boolean(workspace && workspace.repository.fullName.toLowerCase() === repositoryName?.toLowerCase());
+    const matchingWorkspaceError = workspaceError && workspaceError.repository.toLowerCase() === repositoryName?.toLowerCase() ? workspaceError.message : null;
+    content = <RepositoryPage overview={overview} repositoryName={repositoryName} repository={repositoryOverview} workspace={workspaceMatchesRepository ? workspace : null} loading={workspaceLoading || (!workspaceMatchesRepository && !matchingWorkspaceError)} error={matchingWorkspaceError} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   }
 
   return (
@@ -432,7 +442,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
             trigger: { iconName: "status-info" },
             ariaLabels: { drawerName: "Operator help", closeButton: "Close operator help", triggerButton: "Open operator help" },
             resizable: true,
-            defaultSize: 400,
+            defaultSize: 480,
           },
           {
             id: "details",
@@ -442,7 +452,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
             trigger: { iconName: "view-vertical" },
             ariaLabels: { drawerName: "Details", closeButton: "Close details", triggerButton: "Open details" },
             resizable: true,
-            defaultSize: 430,
+            defaultSize: 520,
           },
         ]}
         activeDrawerId={detailsOpen && drawer ? "details" : helpOpen ? "help" : null}
@@ -623,6 +633,18 @@ function countdownText(milliseconds: number) {
   return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(remainingSeconds).padStart(2, "0")}s`;
 }
 
+const US_TIME_ZONES = [
+  { id: "eastern", label: "Eastern Time", timeZone: "America/New_York", color: "#69b4ff" },
+  { id: "central", label: "Central Time", timeZone: "America/Chicago", color: "#63c5da" },
+  { id: "mountain", label: "Mountain Time", timeZone: "America/Denver", color: "#c49aff" },
+  { id: "pacific", label: "Pacific Time", timeZone: "America/Los_Angeles", color: "#f08ac0" },
+] as const;
+
+function usTime(now: Date | null, timeZone: string) {
+  if (!now) return "Calculating…";
+  return new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(now);
+}
+
 function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp }: {
   showCountdown: boolean;
   viewer?: Overview["viewer"];
@@ -631,7 +653,6 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp }: {
 }) {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
-    if (!showCountdown) return;
     let timer: number | null = null;
     const update = () => setNow(new Date());
     const syncTimer = () => {
@@ -640,7 +661,7 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp }: {
         timer = null;
       }
       update();
-      if (document.visibilityState === "visible") timer = window.setInterval(update, 1_000);
+      if (document.visibilityState === "visible") timer = window.setInterval(update, showCountdown ? 1_000 : 30_000);
     };
     syncTimer();
     document.addEventListener("visibilitychange", syncTimer);
@@ -674,6 +695,7 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp }: {
       identity={{ href: "/", title: "UDS Scout", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); onHome(); } }}
       utilities={[
         ...(showCountdown ? [{ type: "button" as const, text: countdownUtilityText as unknown as string, iconName: "calendar" as const, ariaLabel: countdownLabel }] : []),
+        { type: "menu-dropdown", text: "US time", title: "US time zones", description: "Current local time with daylight saving adjustments.", iconSvg: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#69b4ff" strokeWidth="1.7" /><path d="M8 4.5v3.8l2.6 1.5" fill="none" stroke="#69b4ff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>, ariaLabel: "View United States time zones", items: US_TIME_ZONES.map((zone) => ({ id: zone.id, text: zone.label, secondaryText: usTime(now, zone.timeZone), iconSvg: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill={zone.color} /></svg> })) },
         { type: "button", text: "Help", iconName: "status-info", ariaLabel: "Open operator help", onClick: onHelp },
         { type: "menu-dropdown", text: viewer?.login ?? "GitHub user", iconUrl: viewer?.avatar, items: viewer ? [{ id: "profile", text: "Open GitHub profile", href: viewer.url, external: true }] : [] },
       ]}
@@ -944,8 +966,9 @@ function RepositoryPullRequestTable({ items, title, repository, referenceTime, o
   );
 }
 
-function RepositoryPage({ overview, repository, workspace, loading, error, openDrawer, navigate }: {
+function RepositoryPage({ overview, repositoryName, repository, workspace, loading, error, openDrawer, navigate }: {
   overview: Overview;
+  repositoryName?: string;
   repository?: Repository;
   workspace: RepositoryWorkspace | null;
   loading: boolean;
@@ -953,11 +976,12 @@ function RepositoryPage({ overview, repository, workspace, loading, error, openD
   openDrawer: (selection: DrawerSelection) => void;
   navigate: (href: string) => void;
 }) {
+  if (loading) {
+    const loadingRepositoryName = repository?.name ?? repositoryName?.split("/").at(-1) ?? "Repository";
+    return <ContentLayout header={<Header variant="h1">{loadingRepositoryName}</Header>}><Box textAlign="center" padding={{ vertical: "xxxl" }}><SpaceBetween size="m"><Spinner size="large" /><Box color="text-body-secondary">Loading repository operations…</Box></SpaceBetween></Box></ContentLayout>;
+  }
   if (!repository) {
     return <ContentLayout header={<Header variant="h1">Repository not found</Header>}><EmptyState title="Repository is not tracked" detail="Choose a repository from the navigation panel." /></ContentLayout>;
-  }
-  if (loading) {
-    return <ContentLayout header={<Header variant="h1">{repository.name}</Header>}><Box textAlign="center" padding={{ vertical: "xxxl" }}><Spinner size="large" /></Box></ContentLayout>;
   }
   if (!workspace) {
     return <ContentLayout header={<Header variant="h1">{repository.name}</Header>}><EmptyState title="Repository details are unavailable" detail={error ?? "GitHub did not return repository details. Try refreshing this page."} /></ContentLayout>;

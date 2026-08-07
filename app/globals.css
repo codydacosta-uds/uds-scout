@@ -310,6 +310,24 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   min-width: 0;
 }
 
+.quick-select-group-list {
+  border-top: 1px solid #34383e;
+}
+
+.quick-select-group-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 14px 0;
+  align-items: center;
+  border-bottom: 1px solid #34383e;
+}
+
+.quick-select-group-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .sonic-maintenance-name {
   color: var(--d2d-color-warning) !important;
 }
@@ -414,6 +432,57 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   font-weight: 400;
 }
 
+.renovate-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.renovate-review-section {
+  scroll-margin-top: 80px;
+}
+
+.renovate-review-filter {
+  width: min(320px, 100%);
+}
+
+.renovate-review-beacon {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent url("/renovate.svg") center / 42px 42px no-repeat;
+  cursor: pointer;
+  animation: renovate-review-beacon-pulse 1.8s ease-in-out infinite;
+}
+
+.renovate-review-beacon:hover {
+  opacity: 1;
+}
+
+.renovate-review-beacon:focus-visible {
+  outline: 2px solid #b8bec6;
+  outline-offset: 2px;
+}
+
+@keyframes renovate-review-beacon-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .renovate-review-beacon {
+    animation: none;
+  }
+}
+
 .briefing-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -454,18 +523,21 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   color: var(--d2d-color-warning);
 }
 
-.customize-cards-done button {
+.customize-cards-done button,
+.workspace-primary-action button {
   border-color: var(--d2d-color-warning) !important;
   background: var(--d2d-color-warning) !important;
   color: #111317 !important;
 }
 
-.customize-cards-done button:hover {
+.customize-cards-done button:hover,
+.workspace-primary-action button:hover {
   border-color: var(--d2d-color-warning-hover) !important;
   background: var(--d2d-color-warning-hover) !important;
 }
 
-.customize-cards-done button:active {
+.customize-cards-done button:active,
+.workspace-primary-action button:active {
   border-color: var(--d2d-color-warning-active) !important;
   background: var(--d2d-color-warning-active) !important;
 }
@@ -523,6 +595,10 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
 
 .metric-card-attention {
   border-left: 3px solid #d91515;
+}
+
+.metric-card-warning {
+  border-left: 3px solid var(--d2d-color-warning);
 }
 
 .metric-card-success {
@@ -1082,11 +1158,40 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   gap: 3px;
 }
 
-.drawer-pipeline-heading {
+.drawer-pipeline-heading,
+.drawer-check-result {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+body.awsui-dark-mode div[class*="awsui_drawer_"] {
+  background-color: #0b0c0e;
+}
+
+body.awsui-dark-mode div[class*="awsui_drawer_"][class*="awsui_position-static_"] {
+  min-height: 100%;
+}
+
+body.awsui-dark-mode div[class*="awsui_drawer_"] > div[class*="awsui_footer_"] {
+  background-color: #0b0c0e;
+}
+
+div[class*="awsui_drawer_"]:has(> div[class*="awsui_content_"] > .drawer-empty-state) {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+div[class*="awsui_content_"]:has(> .drawer-empty-state) {
+  display: grid;
+  flex: 1;
+}
+
+.drawer-empty-state {
+  display: grid;
+  place-items: center;
 }
 
 .drawer-key-value-list {

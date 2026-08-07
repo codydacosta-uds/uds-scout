@@ -144,11 +144,31 @@ function checkName(check: GraphCheck) {
   return check.name ?? check.context ?? "Unnamed check";
 }
 
+function checkTargetUrl(check: GraphCheck) {
+  const candidate = check.detailsUrl ?? check.targetUrl;
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkReference(check: GraphCheck) {
+  return { name: checkName(check), url: checkTargetUrl(check) };
+}
+
 function checkState(check: GraphCheck): "passed" | "pending" | "failing" {
   const state = (check.conclusion ?? check.state ?? check.status ?? "").toUpperCase();
   if (["SUCCESS", "NEUTRAL", "SKIPPED"].includes(state)) return "passed";
   if (["FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"].includes(state)) return "failing";
   return "pending";
+}
+
+function checkCancelled(check: GraphCheck) {
+  const state = (check.conclusion ?? check.state ?? "").toUpperCase();
+  return ["CANCELLED", "STALE"].includes(state);
 }
 
 function configuredLabels(name: "PRIORITY" | "SECURITY") {
@@ -169,6 +189,10 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
   const requiredChecks = protection?.requiresStatusChecks
     ? allChecks.filter((check) => requiredContexts.has(checkName(check)))
     : [];
+  const allPassed = allChecks.filter((check) => checkState(check) === "passed");
+  const allPending = allChecks.filter((check) => checkState(check) === "pending" && !checkCancelled(check));
+  const allFailing = allChecks.filter((check) => checkState(check) === "failing");
+  const allCancelled = allChecks.filter(checkCancelled);
   const requiredCount = protection?.requiresStatusChecks ? Math.max(requiredContexts.size, requiredChecks.length) : 0;
   const requiredKnown = rules !== null && (!protection?.requiresStatusChecks || requiredCount > 0);
   const checksToEvaluate = protection?.requiresStatusChecks ? requiredChecks : [];
@@ -296,8 +320,8 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
   } else {
     state = "needs-review";
     progress = "no-approvals";
-    label = automation ? "Informational update" : "No approvals";
-    reason = automation ? "Automated work is visible but has no observable blocker." : "No approval has been submitted.";
+    label = automation ? "Routine update" : "No approvals";
+    reason = automation ? "This automated update has no elevated blocker or direct request." : "No approval has been submitted.";
   }
 
   if (ignored) {
@@ -323,6 +347,17 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
       pending,
       failing: failingChecks.length,
       failingNames: failingChecks.map(checkName),
+      rollup: {
+        passed: allPassed.length,
+        pending: allPending.length,
+        pendingChecks: allPending.map(checkReference),
+        failing: allFailing.length,
+        failingNames: allFailing.map(checkName),
+        failingChecks: allFailing.map(checkReference),
+        cancelled: allCancelled.length,
+        cancelledNames: allCancelled.map(checkName),
+        cancelledChecks: allCancelled.map(checkReference),
+      },
       summary: checksSummary,
     },
     mergeable: pull.mergeable,

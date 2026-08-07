@@ -93,6 +93,7 @@ export function repositoryHealth(repository: Repository) {
 
 export function pullWorkflowStatus(pull: PullRequest) {
   const state = pull.workflow.state;
+  if (pull.workflow.automation && !pull.workflow.elevatedAutomation && pull.workflow.label === "Routine update") return <StatusIndicator type="pending">Routine update</StatusIndicator>;
   if (state === "blocked") return <StatusIndicator type={pull.workflow.checks.failing ? "error" : "warning"}>{pull.workflow.label}</StatusIndicator>;
   if (state === "ready-to-merge") return <StatusIndicator type="success">{pull.workflow.label}</StatusIndicator>;
   if (state === "waiting-on-me") return <StatusIndicator type="warning">{pull.workflow.label}</StatusIndicator>;
@@ -165,7 +166,7 @@ export function DrawerKeyValueList({ items }: {
   );
 }
 
-export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, successHighlight = false }: {
+export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, warningHighlight = false, successHighlight = false }: {
   title: string;
   value: React.ReactNode;
   description: string;
@@ -173,9 +174,10 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
   indicator?: { type: "warning" | "error" | "success" | "pending" | "info"; label: string };
   onDetails?: () => void;
   attention?: boolean;
+  warningHighlight?: boolean;
   successHighlight?: boolean;
 }) {
-  const className = ["metric-card", attention && "metric-card-attention", successHighlight && "metric-card-success"].filter(Boolean).join(" ");
+  const className = ["metric-card", attention && "metric-card-attention", warningHighlight && "metric-card-warning", successHighlight && "metric-card-success"].filter(Boolean).join(" ");
   const indicatorIcon = indicator?.type === "error" ? "status-negative"
     : indicator?.type === "warning" ? "status-warning"
       : indicator?.type === "success" ? "status-positive"
@@ -188,7 +190,7 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
       {indicator && onDetails ? <button type="button" className={`metric-card-indicator metric-card-indicator-${indicator.type}`} onClick={onDetails} aria-label={`${indicator.label}. View details`} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></button> : null}
       <SpaceBetween size="s">
         <div className="metric-card-heading"><Box variant="awsui-key-label">{title}</Box>{info}</div>
-        <Box variant="awsui-value-large" color={attention ? "text-status-error" : undefined}>{value}</Box>
+        <Box variant="awsui-value-large" color={attention ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
         <Box color="text-body-secondary">{description}</Box>
         {onDetails ? <Button variant="inline-link" onClick={onDetails}>View details</Button> : null}
       </SpaceBetween>

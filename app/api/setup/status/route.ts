@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { githubRequest, githubTokenStatus } from "@/lib/github";
 import { gitlabAbsoluteUrl, gitlabRequest, gitlabTokenStatus, type GitlabViewer } from "@/lib/gitlab";
 import { readLocalSettings } from "@/lib/local-settings";
+import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
+import { DEFAULT_WORKSPACE_PRESETS } from "@/lib/repository-constants";
 import { configuredRepositorySource } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
@@ -28,6 +30,8 @@ export async function GET() {
     repositorySource: repositories.source,
     repositories: repositories.repositories,
     viewer: viewer ? { login: viewer.login, name: viewer.name, avatar: viewer.avatar_url, url: viewer.html_url } : null,
+    renovateReviewDay: settings?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY,
+    workspacePresets: settings?.workspacePresets ?? DEFAULT_WORKSPACE_PRESETS,
     gitlab: {
       hasToken: gitlabToken.configured && Boolean(gitlabViewer),
       tokenSource: gitlabToken.source,

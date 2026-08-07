@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { apiError, clearGitHubCache, currentGitHubViewer, githubAllPages, RawRepo } from "@/lib/github";
 import { gitlabAccessibleProjects, gitlabApiError, GitLabApiError, gitlabProjectPreflight, gitlabTokenStatus } from "@/lib/gitlab";
 import { readLocalSettings, writeLocalSettings } from "@/lib/local-settings";
+import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
+import { DEFAULT_WORKSPACE_PRESETS } from "@/lib/repository-constants";
 import { configuredRepositorySource } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
@@ -80,7 +82,11 @@ export async function POST(request: NextRequest) {
     if (requestedGitlabProjects.length > 50) {
       return NextResponse.json({ error: "Choose no more than 50 Gitlab projects." }, { status: 400 });
     }
-    const requestedDefault = typeof body.gitlabDefaultProject === "string" ? body.gitlabDefaultProject.trim() : null;
+    const requestedDefault = typeof body.gitlabDefaultProject === "string"
+      ? body.gitlabDefaultProject.trim() || null
+      : body.gitlabDefaultProject === null
+        ? null
+        : existing?.gitlabDefaultProject ?? null;
     if (requestedDefault && !requestedGitlabProjects.some((project) => project.toLowerCase() === requestedDefault.toLowerCase())) {
       return NextResponse.json({ error: "The default ticket project must be selected for Gitlab work items." }, { status: 400 });
     }
@@ -120,9 +126,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    writeLocalSettings({ repositories, setupCompleted: true, gitlabProjects, gitlabDefaultProject }, viewer);
+    const renovateReviewDay = existing?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY;
+    const workspacePresets = existing?.workspacePresets ?? DEFAULT_WORKSPACE_PRESETS;
+    writeLocalSettings({ repositories, setupCompleted: true, gitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets }, viewer);
     clearGitHubCache();
-    return NextResponse.json({ repositories, gitlabProjects, gitlabDefaultProject });
+    return NextResponse.json({ repositories, gitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets });
   } catch (error) {
     const failure = error instanceof GitLabApiError ? gitlabApiError(error) : apiError(error);
     return NextResponse.json({ error: failure.message }, { status: failure.status });

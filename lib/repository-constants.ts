@@ -8,11 +8,16 @@ export const TEST_LAB_REPOSITORIES = [
   "uds-packages/jenkins",
 ] as const;
 
-export const WORKSPACE_PRESETS = [
+export type WorkspacePreset = {
+  id: string;
+  label: string;
+  repositories: string[];
+};
+
+export const DEFAULT_WORKSPACE_PRESETS: WorkspacePreset[] = [
   {
     id: "sonic-maintainer",
     label: "SONIC maintainer",
-    description: "Add the SONIC infrastructure and maintained package repositories.",
     repositories: [SONIC_REPOSITORY, ...TEST_LAB_REPOSITORIES],
   },
-] as const;
+];

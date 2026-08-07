@@ -16,20 +16,72 @@ import Header from "@cloudscape-design/components/header";
 import Icon from "@cloudscape-design/components/icon";
 import Link from "@cloudscape-design/components/link";
 import Popover from "@cloudscape-design/components/popover";
+import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import { useEffect, useState } from "react";
+import { renovateReviewDayForDate } from "@/lib/renovate-review";
 import type { DrawerSelection } from "./operations-types";
 import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryHealth, udsCommonStatus } from "./operations-ui";
-import type { GitLabWorkItems, Overview, RepositoryCatalog } from "./types";
+import type { GitLabWorkItems, Overview, PullRequest, RepositoryCatalog } from "./types";
 
 function greetingForHour(hour: number) {
   if (hour >= 5 && hour < 12) return "Good morning";
   if (hour >= 12 && hour < 17) return "Good afternoon";
   if (hour >= 17 && hour < 22) return "Good evening";
   return "Welcome back";
+}
+
+type RenovateCheckFilter = "all" | "failed" | "running" | "passed" | "no-checks";
+
+function renovateCheckCategory(pull: PullRequest): Exclude<RenovateCheckFilter, "all"> {
+  const { total, rollup } = pull.workflow.checks;
+  if (rollup.failing || rollup.cancelled) return "failed";
+  if (rollup.pending) return "running";
+  if (total) return "passed";
+  return "no-checks";
+}
+
+const renovateCheckPriority: Record<Exclude<RenovateCheckFilter, "all">, number> = {
+  failed: 0,
+  running: 1,
+  passed: 2,
+  "no-checks": 3,
+};
+
+function RenovateCheckStatus({ pull }: { pull: PullRequest }) {
+  const { total, rollup } = pull.workflow.checks;
+  const pendingChecks = rollup.pendingChecks ?? [];
+  const failingChecks = rollup.failingChecks ?? rollup.failingNames.map((name) => ({ name, url: null }));
+  const cancelledChecks = rollup.cancelledChecks ?? rollup.cancelledNames.map((name) => ({ name, url: null }));
+  const completedSummary = `${rollup.passed} passed${rollup.cancelled ? ` · ${rollup.cancelled} cancelled` : ""}${rollup.pending ? ` · ${rollup.pending} running` : ""}`;
+  if (rollup.failing) {
+    const firstFailure = failingChecks.find((check) => check.url) ?? failingChecks[0];
+    return <SpaceBetween size="xxs"><span title={rollup.failingNames.join(", ")}><Link href={firstFailure?.url ?? `${pull.url}/checks`} external ariaLabel={`Open ${rollup.failing === 1 ? firstFailure?.name ?? "failed check" : "first failed check"} for pull request ${pull.number}`}><StatusIndicator type="error">{rollup.failing} failed</StatusIndicator></Link></span><Box color="text-body-secondary">{completedSummary}</Box></SpaceBetween>;
+  }
+  if (rollup.cancelled) {
+    const firstCancellation = cancelledChecks.find((check) => check.url) ?? cancelledChecks[0];
+    return <SpaceBetween size="xxs"><span title={rollup.cancelledNames.join(", ")}><Link href={firstCancellation?.url ?? `${pull.url}/checks`} external ariaLabel={`Open ${rollup.cancelled === 1 ? firstCancellation?.name ?? "cancelled check" : "first cancelled check"} for pull request ${pull.number}`}><StatusIndicator type="stopped">{rollup.cancelled} cancelled</StatusIndicator></Link></span><Box color="text-body-secondary">{rollup.passed} of {total} passed</Box></SpaceBetween>;
+  }
+  if (rollup.pending) {
+    const firstPending = pendingChecks.find((check) => check.url) ?? pendingChecks[0];
+    return <SpaceBetween size="xxs"><span title={pendingChecks.map((check) => check.name).join(", ")}><Link href={firstPending?.url ?? `${pull.url}/checks`} external ariaLabel={`Open ${rollup.pending === 1 ? firstPending?.name ?? "running check" : "first running check"} for pull request ${pull.number}`}><StatusIndicator type="in-progress">{rollup.pending} running</StatusIndicator></Link></span><Box color="text-body-secondary">{rollup.passed} of {total} passed</Box></SpaceBetween>;
+  }
+  if (total) return <StatusIndicator type="success">All {total} passed</StatusIndicator>;
+  return <StatusIndicator type="pending">No checks reported</StatusIndicator>;
+}
+
+function RenovateApprovalStatus({ pull }: { pull: PullRequest }) {
+  const { count, required, decision, changesRequestedBy } = pull.workflow.approvals;
+  if (changesRequestedBy.length) return <StatusIndicator type="error">Changes requested</StatusIndicator>;
+  if (decision === "APPROVED" || (required !== null && required > 0 && count >= required)) return <StatusIndicator type="success">{required ? `${count}/${required} approved` : `${count} approved`}</StatusIndicator>;
+  if (required === 0) return <StatusIndicator type="pending">Not required</StatusIndicator>;
+  if (required !== null) return <StatusIndicator type="warning">{count}/{required} approved</StatusIndicator>;
+  if (decision === "REVIEW_REQUIRED") return <StatusIndicator type="warning">Review required</StatusIndicator>;
+  if (count) return <StatusIndicator type="info">{count} approved</StatusIndicator>;
+  return <StatusIndicator type="pending">No review state</StatusIndicator>;
 }
 
 function viewerFirstName(viewer: Overview["viewer"]) {
@@ -189,6 +241,8 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
   navigate: (href: string) => void;
 }) {
   const [greeting, setGreeting] = useState("Welcome back");
+  const [showWeeklyRenovateReview, setShowWeeklyRenovateReview] = useState(false);
+  const [renovateCheckFilter, setRenovateCheckFilter] = useState<RenovateCheckFilter>("all");
   const [cardOrder, setCardOrder] = useState<OverviewCardId[]>(DEFAULT_OVERVIEW_CARD_ORDER);
   const [customizeCardsOpen, setCustomizeCardsOpen] = useState(false);
   const cardDragSensors = useSensors(
@@ -208,11 +262,15 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
       : null;
 
   useEffect(() => {
-    const updateGreeting = () => setGreeting(greetingForHour(new Date().getHours()));
-    updateGreeting();
-    const timer = window.setInterval(updateGreeting, 60_000);
+    const updateLocalTime = () => {
+      const now = new Date();
+      setGreeting(greetingForHour(now.getHours()));
+      setShowWeeklyRenovateReview(overview.preferences.renovateReviewDay !== "hidden" && renovateReviewDayForDate(now) === overview.preferences.renovateReviewDay);
+    };
+    updateLocalTime();
+    const timer = window.setInterval(updateLocalTime, 60_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [overview.preferences.renovateReviewDay]);
 
   useEffect(() => {
     try {
@@ -250,6 +308,10 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
     updateCardOrder(arrayMove(cardOrder, previousIndex, nextIndex));
   };
 
+  const jumpToRenovateReview = () => {
+    document.getElementById("renovate-review")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  };
+
   const activeBriefingSince = new Date(new Date(overview.generatedAt).getTime() - 86_400_000).toISOString();
   const briefingItems = overview.briefing.items.filter((item) => new Date(item.timestamp).getTime() >= new Date(activeBriefingSince).getTime());
   const briefingWaiting = briefingItems.filter((item) => item.type === "review-request" || item.type === "pull-assigned").length;
@@ -272,19 +334,53 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
     ...overview.myWork.needsOwnership,
   ].map((pull) => [pull.id, pull])).values()];
   const myWorkCount = workQueue.length + overview.myWork.assignedIssues.length;
+  const scheduledRenovateUpdates = [...overview.renovate.pulls].sort((first, second) => renovateCheckPriority[renovateCheckCategory(first)] - renovateCheckPriority[renovateCheckCategory(second)] || new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime());
+  const renovateCheckCounts = scheduledRenovateUpdates.reduce<Record<Exclude<RenovateCheckFilter, "all">, number>>((counts, pull) => {
+    counts[renovateCheckCategory(pull)] += 1;
+    return counts;
+  }, { failed: 0, running: 0, passed: 0, "no-checks": 0 });
+  const renovateCheckFilterOptions = [
+    { label: `All pipeline states (${scheduledRenovateUpdates.length})`, value: "all" },
+    { label: `Failed or cancelled (${renovateCheckCounts.failed})`, value: "failed" },
+    { label: `Running (${renovateCheckCounts.running})`, value: "running" },
+    { label: `Passed (${renovateCheckCounts.passed})`, value: "passed" },
+    { label: `No checks (${renovateCheckCounts["no-checks"]})`, value: "no-checks" },
+  ];
+  const selectedRenovateCheckFilter = renovateCheckFilterOptions.find((option) => option.value === renovateCheckFilter) ?? renovateCheckFilterOptions[0];
+  const visibleRenovateUpdates = renovateCheckFilter === "all" ? scheduledRenovateUpdates : scheduledRenovateUpdates.filter((pull) => renovateCheckCategory(pull) === renovateCheckFilter);
   const routineRenovateTotal = Math.max(0, overview.renovate.total - overview.renovate.unassignedTotal);
 
   if (!overview.repositories.length) {
     return (
       <ContentLayout header={<Header variant="h1" actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} /><Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}>{greeting}, {viewerFirstName(overview.viewer)}!</Header>}>
-        <Container><EmptyState title="No repositories selected" detail="Choose repositories in Workspace settings. UDS Scout will not aggregate other repositories available to your GitHub token." /><Box textAlign="center"><Button onClick={() => navigate("/settings")} variant="primary">Choose repositories</Button></Box></Container>
+        <Container><EmptyState title="No repositories selected" detail="Choose repositories in Workspace settings. UDS Scout will not aggregate other repositories available to your GitHub token." /><Box textAlign="center"><span className="workspace-primary-action"><Button onClick={() => navigate("/settings/repositories")} variant="primary">Manage GitHub repositories</Button></span></Box></Container>
       </ContentLayout>
     );
   }
 
   const cards: Record<OverviewCardId, React.ReactNode> = {
     "pull-requests": <MetricCard title="Waiting on me" value={overview.myWork.waitingOnMe.length} description={overview.myWork.waitingOnMe.length ? "Reviews or changes need your attention." : "No reviews or changes need you."} onDetails={() => openDrawer({ type: "my-work", queue: "waiting-on-me" })} indicator={overview.myWork.waitingOnMe.length ? { type: "warning", label: "Needs you" } : undefined} />,
-    renovate: <MetricCard title="Renovate attention" value={overview.renovate.unassignedTotal} description={overview.renovate.unassignedTotal ? routineRenovateTotal ? `${routineRenovateTotal} routine ${routineRenovateTotal === 1 ? "update can" : "updates can"} wait.` : "Elevated updates need manual attention." : `${overview.renovate.total} routine ${overview.renovate.total === 1 ? "update can" : "updates can"} wait.`} info={<PanelInfo header="Renovate attention">Routine updates stay informational. UDS Scout elevates only observable blockers, direct assignments or review requests, failing required checks, conflicts, and configured priority labels. Pull requests labeled stale are excluded.</PanelInfo>} onDetails={() => openDrawer({ type: "renovate", unassignedOnly: true })} indicator={overview.renovate.unassignedTotal ? { type: "warning", label: "Manual action required" } : undefined} />,
+    renovate: showWeeklyRenovateReview ? (
+      <MetricCard
+        title="Renovate review"
+        value={overview.renovate.total}
+        description={renovateCheckCounts.failed
+          ? `${renovateCheckCounts.failed} ${renovateCheckCounts.failed === 1 ? "update has" : "updates have"} failed or cancelled checks.`
+          : overview.renovate.total
+            ? `${overview.renovate.total} open ${overview.renovate.total === 1 ? "update is" : "updates are"} scheduled for review today.`
+            : "No open updates need review today."}
+        info={<PanelInfo header="Renovate review">Today is the configured review day, so this card counts all open Renovate updates and the review table evaluates every check reported for each latest commit, including non-required checks. Outside the review day, the card returns to showing only elevated blockers and direct requests.</PanelInfo>}
+        onDetails={jumpToRenovateReview}
+        warningHighlight={overview.renovate.total > 0}
+        indicator={renovateCheckCounts.failed
+          ? { type: "error", label: `${renovateCheckCounts.failed} ${renovateCheckCounts.failed === 1 ? "update has" : "updates have"} failed or cancelled checks` }
+          : overview.renovate.total
+            ? { type: "warning", label: "Scheduled review available" }
+            : undefined}
+      />
+    ) : (
+      <MetricCard title="Renovate attention" value={overview.renovate.unassignedTotal} description={overview.renovate.unassignedTotal ? routineRenovateTotal ? `${routineRenovateTotal} routine ${routineRenovateTotal === 1 ? "update can" : "updates can"} wait.` : "Elevated updates need manual attention." : `${overview.renovate.total} routine ${overview.renovate.total === 1 ? "update can" : "updates can"} wait.`} info={<PanelInfo header="Renovate attention">Routine updates stay informational. UDS Scout elevates only observable blockers, direct assignments or review requests, failing required checks, conflicts, and configured priority labels. Pull requests labeled stale are excluded.</PanelInfo>} onDetails={() => openDrawer({ type: "renovate", unassignedOnly: true })} indicator={overview.renovate.unassignedTotal ? { type: "warning", label: "Manual action required" } : undefined} />
+    ),
     issues: <MetricCard title="Issues assigned to me" value={overview.myWork.assignedIssues.length} description={overview.myWork.assignedIssues.length ? "Assigned issues need follow-up." : "No assigned issues need action."} onDetails={() => openDrawer({ type: "my-work", queue: "assigned-issues" })} />,
     pipelines: <MetricCard title="Workflow failures" value={overview.metrics.pipelineFailures ? `${overview.metrics.pipelineFailures} unresolved` : "None"} description={primaryFailureContext} onDetails={() => openDrawer({ type: "pipelines" })} attention={overview.workflowFailures.some((failure) => failure.defaultBranch || failure.blocksPullRequest)} indicator={overview.metrics.pipelineFailures ? { type: "error", label: "Needs investigation" } : undefined} />,
     "uds-versions": overview.capabilities.sonic ? (
@@ -351,7 +447,7 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
           variant="container"
           stickyHeader
           trackBy="id"
-          header={<Header variant="h2" description="Next actions, blockers, and handoffs." info={<PanelInfo header="My work today">Includes pull requests waiting on you, blocked work, merge-ready work, your pull requests waiting on others, human-created work needing ownership, and assigned issues. Routine automation and pull requests labeled stale are excluded.</PanelInfo>} actions={overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : undefined}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
+          header={<Header variant="h2" description="Next actions, blockers, and handoffs." info={<PanelInfo header="My work today">Includes pull requests waiting on you, blocked work, merge-ready work, your pull requests waiting on others, human-created work needing ownership, and assigned issues. Routine automation and pull requests labeled stale are excluded.</PanelInfo>} actions={overview.myWork.assignedIssues.length || showWeeklyRenovateReview ? <SpaceBetween direction="horizontal" size="s">{overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : null}{showWeeklyRenovateReview ? <button type="button" className="renovate-review-beacon" aria-label="Jump to Renovate review" title="Renovate review is available" onClick={jumpToRenovateReview} /> : null}</SpaceBetween> : undefined}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
           items={workQueue}
           columnDefinitions={[
             { id: "work", header: "Work", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
@@ -363,14 +459,16 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
           empty={<EmptyState title="No action required" detail="Your selected-repository queue is clear." />}
         />
 
-        <Container header={<Header variant="h2" description={briefingItems.length ? "Changes detected in the last 24 hours." : "No changes since yesterday."} actions={<Button onClick={() => openDrawer({ type: "briefing", since: activeBriefingSince })}>View details</Button>}><span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({briefingItems.length})</span></span></Header>}>
-          <div className="briefing-summary-grid">
-            <SpaceBetween size="xxs"><Box variant="awsui-key-label">WAITING ON YOU</Box><Box variant="awsui-value-large">{briefingWaiting}</Box></SpaceBetween>
-            <SpaceBetween size="xxs"><Box variant="awsui-key-label">PR PROGRESS</Box><Box variant="awsui-value-large">{briefingProgress}</Box></SpaceBetween>
-            <SpaceBetween size="xxs"><Box variant="awsui-key-label">WORKFLOW CHANGES</Box><Box variant="awsui-value-large">{briefingFailures + briefingRecoveries}</Box></SpaceBetween>
-            <SpaceBetween size="xxs"><Box variant="awsui-key-label">ASSIGNED ISSUES</Box><Box variant="awsui-value-large">{briefingItems.filter((item) => item.type === "issue-assigned").length}</Box></SpaceBetween>
-          </div>
-        </Container>
+        {briefingItems.length ? (
+          <Container header={<Header variant="h2" description="Changes detected in the last 24 hours." actions={<Button onClick={() => openDrawer({ type: "briefing", since: activeBriefingSince })}>View details</Button>}><span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({briefingItems.length})</span></span></Header>}>
+            <div className="briefing-summary-grid">
+              <SpaceBetween size="xxs"><Box variant="awsui-key-label">WAITING ON YOU</Box><Box variant="awsui-value-large">{briefingWaiting}</Box></SpaceBetween>
+              <SpaceBetween size="xxs"><Box variant="awsui-key-label">PR PROGRESS</Box><Box variant="awsui-value-large">{briefingProgress}</Box></SpaceBetween>
+              <SpaceBetween size="xxs"><Box variant="awsui-key-label">WORKFLOW CHANGES</Box><Box variant="awsui-value-large">{briefingFailures + briefingRecoveries}</Box></SpaceBetween>
+              <SpaceBetween size="xxs"><Box variant="awsui-key-label">ASSIGNED ISSUES</Box><Box variant="awsui-value-large">{briefingItems.filter((item) => item.type === "issue-assigned").length}</Box></SpaceBetween>
+            </div>
+          </Container>
+        ) : null}
 
         <DndContext sensors={cardDragSensors} collisionDetection={closestCenter} onDragEnd={handleCardDragEnd}>
           <SortableContext items={cardOrder} strategy={rectSortingStrategy}>
@@ -379,6 +477,28 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
             </Grid>
           </SortableContext>
         </DndContext>
+
+        {showWeeklyRenovateReview ? (
+          <div id="renovate-review" className="renovate-review-section">
+            <Table
+              variant="container"
+              stickyHeader
+              trackBy="id"
+              filter={<div className="renovate-review-filter"><Select selectedOption={selectedRenovateCheckFilter} options={renovateCheckFilterOptions} onChange={({ detail }) => setRenovateCheckFilter(detail.selectedOption.value as RenovateCheckFilter)} /></div>}
+              header={<Header variant="h2" description="Failed or cancelled checks first, then running, passed, and updates with no checks." info={<PanelInfo header="Renovate review">This scheduled queue includes all open Renovate pull requests. Use the pipeline filter to focus on failures, running checks, passed checks, or updates with no reported checks.</PanelInfo>} actions={<Button onClick={() => navigate("/renovate")}>Open full list</Button>}><span className="section-heading">Renovate review <span className="section-heading-count">({visibleRenovateUpdates.length}{renovateCheckFilter === "all" ? "" : ` of ${scheduledRenovateUpdates.length}`})</span></span></Header>}
+              items={visibleRenovateUpdates}
+              columnDefinitions={[
+                { id: "update", header: "Update", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
+                { id: "labels", header: "Type / labels", cell: (item) => item.labels.length ? <div className="renovate-labels">{item.labels.map((label) => <Badge color="grey" key={label.name}>{label.name}</Badge>)}</div> : <Box color="text-body-secondary">Unlabeled</Box> },
+                { id: "pipeline", header: "Pipeline / checks", cell: (item) => <RenovateCheckStatus pull={item} /> },
+                { id: "approvals", header: "Approvals", cell: (item) => <RenovateApprovalStatus pull={item} /> },
+                { id: "state", header: "PR status", cell: pullWorkflowStatus },
+                { id: "opened", header: "Opened", cell: (item) => relativeTime(item.createdAt, overview.generatedAt) },
+              ]}
+              empty={<EmptyState title="No matching Renovate updates" detail={renovateCheckFilter === "all" ? "Tracked dependencies are current. Nothing needs review." : "No updates match this pipeline state."} />}
+            />
+          </div>
+        ) : null}
 
         <Table
           variant="container"

@@ -1,3 +1,6 @@
+import type { RenovateReviewDay } from "@/lib/renovate-review";
+import type { WorkspacePreset } from "@/lib/repository-constants";
+
 export type SetupStatus = {
   configured: boolean;
   hasToken: boolean;
@@ -5,6 +8,8 @@ export type SetupStatus = {
   repositorySource: "environment" | "local" | "unconfigured";
   repositories: string[];
   viewer: SetupViewer | null;
+  renovateReviewDay: RenovateReviewDay;
+  workspacePresets: WorkspacePreset[];
   gitlab: {
     hasToken: boolean;
     tokenSource: "environment" | "session" | null;

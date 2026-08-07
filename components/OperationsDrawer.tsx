@@ -131,6 +131,10 @@ function pullSelectionKey(pull: PullRequest, repository: string) {
   return `${repository}:${pull.id}`;
 }
 
+function CenteredDrawerEmptyState({ title, detail }: { title: string; detail: string }) {
+  return <div className="drawer-empty-state"><EmptyState title={title} detail={detail} /></div>;
+}
+
 function DrawerPullOption({ pull, repository, generatedAt, selectedKey, onSelectionChange, onOpen, children }: {
   pull: PullRequest;
   repository: string;
@@ -175,10 +179,16 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 
   if (selection.type === "pull-request") {
     const { pull } = selection;
+    const checkIssueCount = pull.workflow.checks.rollup.failing + pull.workflow.checks.rollup.cancelled;
+    const checkActivityCount = checkIssueCount + pull.workflow.checks.rollup.pending;
+    const checkResultsUrl = checkActivityCount ? `${pull.url}/checks` : null;
+    const pendingChecks = pull.workflow.checks.rollup.pendingChecks ?? [];
+    const failingChecks = pull.workflow.checks.rollup.failingChecks ?? pull.workflow.checks.rollup.failingNames.map((name) => ({ name, url: null }));
+    const cancelledChecks = pull.workflow.checks.rollup.cancelledChecks ?? pull.workflow.checks.rollup.cancelledNames.map((name) => ({ name, url: null }));
     return (
       <Drawer
         header={`Pull request #${pull.number}`}
-        footer={<SpaceBetween direction="horizontal" size="xs">{canTestPullRequest(pull, selection.repository) && selection.repository ? <TestInLabButton onClick={() => navigate(pullRequestTestLabHref(pull, selection.repository!))} /> : null}<DrawerPrimaryButton href={pull.url} external>Open in GitHub</DrawerPrimaryButton>{selection.repository ? <Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button> : null}</SpaceBetween>}
+        footer={<SpaceBetween direction="horizontal" size="xs">{canTestPullRequest(pull, selection.repository) && selection.repository ? <TestInLabButton onClick={() => navigate(pullRequestTestLabHref(pull, selection.repository!))} /> : null}<DrawerPrimaryButton href={checkResultsUrl ?? pull.url} external>{pull.workflow.checks.rollup.failing ? "Open failed checks" : pull.workflow.checks.rollup.cancelled ? "Open cancelled checks" : pull.workflow.checks.rollup.pending ? "Open running checks" : "Open in GitHub"}</DrawerPrimaryButton>{checkResultsUrl ? <Button href={pull.url} external>Open pull request</Button> : selection.repository ? <Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button> : null}</SpaceBetween>}
       >
         <SpaceBetween size="l">
           <Box variant="h3">{pull.title}</Box>
@@ -191,6 +201,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
             { label: "Why this matters", value: pull.workflow.reason },
             { label: "Approvals", value: pull.workflow.approvals.required === null ? `${pull.workflow.approvals.count} · required count unavailable` : `${pull.workflow.approvals.count} of ${pull.workflow.approvals.required} required` },
             { label: "Required checks", value: pull.workflow.checks.summary },
+            { label: "Check rollup", value: pull.workflow.checks.total ? `${pull.workflow.checks.rollup.passed} passed · ${pull.workflow.checks.rollup.pending} running · ${pull.workflow.checks.rollup.failing} failed · ${pull.workflow.checks.rollup.cancelled} cancelled` : "No checks reported" },
             { label: "Mergeable", value: pull.workflow.mergeable === "MERGEABLE" ? "Yes" : pull.workflow.mergeable === "CONFLICTING" ? "No — conflicts detected" : "Unable to verify" },
             { label: "Assigned to", value: <PullPeople people={pull.assignees} /> },
             { label: "Review requested from", value: <PullPeople people={pull.requestedReviewers} empty="No reviewers requested" /> },
@@ -198,6 +209,15 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
             { label: "Age", value: relativeTime(pull.createdAt, overview.generatedAt) },
             { label: "Updated", value: relativeTime(pull.updatedAt, overview.generatedAt) },
           ]} />
+          {checkActivityCount ? (
+            <Container header={<Header variant="h3" counter={`(${checkActivityCount})`}>Check activity</Header>}>
+              <SpaceBetween size="s">
+                {failingChecks.map((check, index) => <div className="drawer-check-result" key={`failed-${check.name}-${check.url ?? index}`}><StatusIndicator type="error">Failed</StatusIndicator><Link href={check.url ?? checkResultsUrl ?? pull.url} external>{check.name}</Link></div>)}
+                {cancelledChecks.map((check, index) => <div className="drawer-check-result" key={`cancelled-${check.name}-${check.url ?? index}`}><StatusIndicator type="stopped">Cancelled</StatusIndicator><Link href={check.url ?? checkResultsUrl ?? pull.url} external>{check.name}</Link></div>)}
+                {pendingChecks.map((check, index) => <div className="drawer-check-result" key={`running-${check.name}-${check.url ?? index}`}><StatusIndicator type="in-progress">Running</StatusIndicator><Link href={check.url ?? checkResultsUrl ?? pull.url} external>{check.name}</Link></div>)}
+              </SpaceBetween>
+            </Container>
+          ) : null}
           {pull.workflow.blockers.length ? <Container header={<Header variant="h3">Blocking progress</Header>}><SpaceBetween size="xs">{pull.workflow.blockers.map((blocker) => <StatusIndicator type={pull.workflow.checks.failing && blocker.toLowerCase().includes("failing") ? "error" : "warning"} key={blocker}>{blocker}</StatusIndicator>)}</SpaceBetween></Container> : null}
           <PullRequestDescription pull={pull} />
           {pull.labels.length ? <SpaceBetween direction="horizontal" size="xs">{pull.labels.map((label) => <Badge key={label.name}>{label.name}</Badge>)}</SpaceBetween> : null}
@@ -458,9 +478,9 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
       "assigned-issues": "Issues assigned to me",
     };
     if (selection.queue === "assigned-issues") {
-      return <Drawer header={titles[selection.queue]}><SpaceBetween size="m"><Box color="text-body-secondary">Open issues assigned to {overview.viewer.login} in selected repositories.</Box>{overview.myWork.assignedIssues.length ? overview.myWork.assignedIssues.map((issue) => <Container key={`${issue.repository}-${issue.id}`}><SpaceBetween size="xs"><Link href={issue.url} external>{issue.title}</Link><Box color="text-body-secondary">{issue.repository} · #{issue.number} · updated {relativeTime(issue.updatedAt, overview.generatedAt)}</Box></SpaceBetween></Container>) : <EmptyState title="No assigned issues" detail="No selected-repository issues are assigned to you." />}</SpaceBetween></Drawer>;
+      return <Drawer header={titles[selection.queue]}>{overview.myWork.assignedIssues.length ? <SpaceBetween size="m">{overview.myWork.assignedIssues.map((issue) => <Container key={`${issue.repository}-${issue.id}`}><SpaceBetween size="xs"><Link href={issue.url} external>{issue.title}</Link><Box color="text-body-secondary">{issue.repository} · #{issue.number} · updated {relativeTime(issue.updatedAt, overview.generatedAt)}</Box></SpaceBetween></Container>)}</SpaceBetween> : <CenteredDrawerEmptyState title="No assigned issues" detail="No selected-repository issues are assigned to you." />}</Drawer>;
     }
-    return <Drawer header={titles[selection.queue]} footer={<DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton>}><SpaceBetween size="m"><Box color="text-body-secondary">Each item includes the observable reason it appears in this queue.</Box>{pulls.length ? pulls.map((pull) => <Container key={`${pull.repository}-${pull.id}`}><SpaceBetween size="xs"><Link href={pull.url} onFollow={(event) => { event.preventDefault(); onSelect({ type: "pull-request", pull, repository: pull.repository }); }}>{pull.title}</Link>{pullWorkflowStatus(pull)}<Box color="text-body-secondary">{pull.repository} · #{pull.number}</Box><Box>{pull.workflow.reason}</Box></SpaceBetween></Container>) : <EmptyState title={`Nothing ${titles[selection.queue].toLowerCase()}`} detail="No selected-repository pull request currently matches this workflow state." />}</SpaceBetween></Drawer>;
+    return <Drawer header={titles[selection.queue]} footer={<DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton>}>{pulls.length ? <SpaceBetween size="m">{pulls.map((pull) => <Container key={`${pull.repository}-${pull.id}`}><SpaceBetween size="xs"><Link href={pull.url} onFollow={(event) => { event.preventDefault(); onSelect({ type: "pull-request", pull, repository: pull.repository }); }}>{pull.title}</Link>{pullWorkflowStatus(pull)}<Box color="text-body-secondary">{pull.repository} · #{pull.number}</Box><Box>{pull.workflow.reason}</Box></SpaceBetween></Container>)}</SpaceBetween> : <CenteredDrawerEmptyState title={`Nothing ${titles[selection.queue].toLowerCase()}`} detail="No selected-repository pull request currently matches this workflow state." />}</Drawer>;
   }
 
   if (selection.type === "briefing") {
@@ -473,26 +493,22 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     ];
     return (
       <Drawer header={<span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({items.length})</span></span>}>
-        <SpaceBetween size="l">
-          {groups.map((group) => {
-            const matches = items.filter((item) => group.types.includes(item.type));
-            return matches.length ? (
-              <Container key={group.title} header={<Header variant="h3" counter={`(${matches.length})`} description={group.description}>{group.title}</Header>}>
-                <SpaceBetween size="m">
-                  {matches.map((item) => (
-                    <div key={item.id}>
-                      <Link href={item.url} external>{item.title}</Link>
-                      <Box color="text-body-secondary">{item.repository} · {relativeTime(item.timestamp, overview.generatedAt)}</Box>
-                      <Box color="text-body-secondary">{item.detail}</Box>
-                    </div>
-                  ))}
-                </SpaceBetween>
-              </Container>
-            ) : null;
-          })}
-          {items.length ? null : <EmptyState title="No changes since yesterday" detail="No selected-repository changes were found in the last 24 hours." />}
-          <Box color="text-body-secondary">Assignment and review-request timing uses the pull request update time when GitHub does not provide the transition time.</Box>
-        </SpaceBetween>
+        {items.length ? <SpaceBetween size="l">{groups.map((group) => {
+          const matches = items.filter((item) => group.types.includes(item.type));
+          return matches.length ? (
+            <Container key={group.title} header={<Header variant="h3" counter={`(${matches.length})`} description={group.description}>{group.title}</Header>}>
+              <SpaceBetween size="m">
+                {matches.map((item) => (
+                  <div key={item.id}>
+                    <Link href={item.url} external>{item.title}</Link>
+                    <Box color="text-body-secondary">{item.repository} · {relativeTime(item.timestamp, overview.generatedAt)}</Box>
+                    <Box color="text-body-secondary">{item.detail}</Box>
+                  </div>
+                ))}
+              </SpaceBetween>
+            </Container>
+          ) : null;
+        })}</SpaceBetween> : <CenteredDrawerEmptyState title="No changes since yesterday" detail="No selected-repository changes were found in the last 24 hours." />}
       </Drawer>
     );
   }
@@ -503,10 +519,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
     return (
       <Drawer header={selection.unassignedOnly ? "Unassigned pull requests" : "Open pull requests"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton></SpaceBetween>}>
-        <SpaceBetween size="m">
-          <Box color="text-body-secondary">{selection.unassignedOnly ? `${pulls.length} non-Renovate changes have no assignee and are not already waiting for your review.` : `${pulls.length} changes are waiting for review${selection.repository ? ` in ${selection.repository}` : " across tracked repositories"}.`}</Box>
-          {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })} /> : null) : <EmptyState title={selection.unassignedOnly ? "No unassigned pull requests" : "No open pull requests"} detail="There are no changes waiting for review." />}
-        </SpaceBetween>
+        {pulls.length ? <SpaceBetween size="m">{pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })} /> : null)}</SpaceBetween> : <CenteredDrawerEmptyState title={selection.unassignedOnly ? "No unassigned pull requests" : "No open pull requests"} detail="There are no changes waiting for review." />}
       </Drawer>
     );
   }
@@ -521,10 +534,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
     return (
       <Drawer header={selection.unassignedOnly ? "Unassigned Renovate updates" : "Renovate updates"} footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><DrawerPrimaryButton onClick={() => navigate(fullHref)}>Open full Renovate list</DrawerPrimaryButton></SpaceBetween>}>
-        <SpaceBetween size="m">
-          <Box color="text-body-secondary">{selection.unassignedOnly ? "Unassigned dependency updates that may need your attention." : <>Dependency updates created by Renovate from a <Box variant="code" display="inline">renovate/*</Box> source branch.</>} Newest opened first.</Box>
-          {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}>{pull.assignees.length ? <StatusIndicator type="in-progress">Assigned to {pull.assignees.map((assignee) => assignee.login).join(", ")}</StatusIndicator> : <StatusIndicator type="warning">Unassigned</StatusIndicator>}</DrawerPullOption> : null) : <EmptyState title="No Renovate updates need attention" detail="Open updates are assigned, waiting for your review, or complete." />}
-        </SpaceBetween>
+        {pulls.length ? <SpaceBetween size="m">{pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}>{pull.assignees.length ? <StatusIndicator type="in-progress">Assigned to {pull.assignees.map((assignee) => assignee.login).join(", ")}</StatusIndicator> : <StatusIndicator type="warning">Unassigned</StatusIndicator>}</DrawerPullOption> : null)}</SpaceBetween> : <CenteredDrawerEmptyState title="No Renovate updates need attention" detail="Open updates are assigned, waiting for your review, or complete." />}
       </Drawer>
     );
   }
@@ -534,10 +544,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const selectedPull = pulls.find((pull) => pull.repository && pullSelectionKey(pull, pull.repository) === selectedDrawerPull) ?? null;
     return (
       <Drawer header="Review requests" footer={<SpaceBetween direction="horizontal" size="xs"><TestInLabButton disabled={!selectedPull || !selectedPull.repository} onClick={() => { if (selectedPull?.repository) navigate(pullRequestTestLabHref(selectedPull, selectedPull.repository)); }}>Test</TestInLabButton><DrawerPrimaryButton onClick={() => navigate("/pull-requests")}>Open full pull request list</DrawerPrimaryButton></SpaceBetween>}>
-        <SpaceBetween size="m">
-          <Box color="text-body-secondary">Pull requests where {overview.viewer.login} was specifically requested as a reviewer{selection.repository ? ` in ${selection.repository}` : ""}.</Box>
-          {pulls.length ? pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}><StatusIndicator type="info">Your review requested</StatusIndicator></DrawerPullOption> : null) : <EmptyState title="No reviews requested" detail="No open pull requests are waiting specifically for your review." />}
-        </SpaceBetween>
+        {pulls.length ? <SpaceBetween size="m">{pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} selectedKey={selectedDrawerPull} onSelectionChange={setSelectedDrawerPull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}><StatusIndicator type="info">Your review requested</StatusIndicator></DrawerPullOption> : null)}</SpaceBetween> : <CenteredDrawerEmptyState title="No reviews requested" detail="No open pull requests are waiting specifically for your review." />}
       </Drawer>
     );
   }

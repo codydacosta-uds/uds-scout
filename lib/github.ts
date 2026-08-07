@@ -352,7 +352,7 @@ export function presentPull(pull: RawPull) {
       blockers: [],
       waitingOn: [],
       approvals: { count: 0, required: null, reviewers: [], changesRequestedBy: [], decision: null, lastApprovedAt: null },
-      checks: { requiredKnown: false, total: 0, required: 0, passed: 0, pending: 0, failing: 0, failingNames: [], summary: "Unable to verify required checks" },
+      checks: { requiredKnown: false, total: 0, required: 0, passed: 0, pending: 0, failing: 0, failingNames: [], rollup: { passed: 0, pending: 0, pendingChecks: [], failing: 0, failingNames: [], failingChecks: [], cancelled: 0, cancelledNames: [], cancelledChecks: [] }, summary: "Unable to verify required checks" },
       mergeable: "UNKNOWN" as const,
       mergeStateStatus: "UNKNOWN",
       headSha: null,

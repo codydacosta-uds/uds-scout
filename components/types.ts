@@ -1,3 +1,5 @@
+import type { RenovateReviewDay } from "@/lib/renovate-review";
+
 export type ZeusFilesystemUsage = {
   label: string;
   path: string;
@@ -75,6 +77,17 @@ export type PullRequestWorkflow = {
     pending: number;
     failing: number;
     failingNames: string[];
+    rollup: {
+      passed: number;
+      pending: number;
+      pendingChecks: { name: string; url: string | null }[];
+      failing: number;
+      failingNames: string[];
+      failingChecks: { name: string; url: string | null }[];
+      cancelled: number;
+      cancelledNames: string[];
+      cancelledChecks: { name: string; url: string | null }[];
+    };
     summary: string;
   };
   mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
@@ -230,6 +243,9 @@ export type ToolRelease = {
 
 export type Overview = {
   viewer: { login: string; name: string | null; avatar: string; url: string };
+  preferences: {
+    renovateReviewDay: RenovateReviewDay;
+  };
   capabilities: {
     sonic: boolean;
     testLab: boolean;

@@ -13,6 +13,7 @@ import { loadRepositoryOperations, type RecentMergedPull } from "@/lib/github-op
 import { gitlabRequest, gitlabTokenStatus, type GitlabViewer } from "@/lib/gitlab";
 import { readLocalSettings } from "@/lib/local-settings";
 import { SONIC_REPOSITORY, TEST_LAB_REPOSITORIES } from "@/lib/repository-constants";
+import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
 import { trackedRepositories } from "@/lib/tracked-repositories";
 import { parseUdsCommonIncludes } from "@/lib/uds-common";
 import type { DailyBriefingItem, PipelineRun, PullRequest, WorkflowFailure } from "@/components/types";
@@ -214,19 +215,25 @@ export async function GET() {
     const repositories = await Promise.all(tracked.map((repository) => githubRequest<RawRepo>(`/repos/${repository}`)));
 
     const operationalGroups: OperationalGroup[] = await Promise.all(repositories.map(async (repository) => {
-      const [operations, runs] = await Promise.all([
+      const [operations, recentRuns, defaultBranchRuns] = await Promise.all([
         loadRepositoryOperations(repository.full_name, viewer.login).catch(async () => {
           const rawPulls = await githubAllPages<RawPull>(`/repos/${repository.full_name}/pulls?state=open&sort=updated&direction=desc`, 10);
           return { pulls: rawPulls.map(presentPull), mergedPulls: [], assignedIssues: [] };
         }),
         githubRequest<RunsResponse>(`/repos/${repository.full_name}/actions/runs?per_page=30`).catch(() => null),
+        githubRequest<RunsResponse>(`/repos/${repository.full_name}/actions/runs?branch=${encodeURIComponent(repository.default_branch)}&per_page=1`).catch(() => null),
       ]);
+      const runs = [...(recentRuns?.workflow_runs ?? [])];
+      for (const run of defaultBranchRuns?.workflow_runs ?? []) {
+        if (!runs.some((candidate) => candidate.id === run.id)) runs.push(run);
+      }
+      runs.sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime());
       return {
         repository,
         openPulls: operations.pulls.map((pull) => ({ ...pull, repository: repository.full_name })),
         mergedPulls: operations.mergedPulls,
         assignedIssues: operations.assignedIssues.map((issue) => ({ ...issue, repository: repository.full_name })),
-        runs: runs?.workflow_runs ?? [],
+        runs,
       };
     }));
 
@@ -334,6 +341,7 @@ export async function GET() {
 
     return NextResponse.json({
       viewer: { login: viewer.login, name: viewer.name, avatar: viewer.avatar_url, url: viewer.html_url },
+      preferences: { renovateReviewDay: localSettings?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY },
       capabilities: { sonic: hasSonic, testLab: hasTestLabRepository, gitlab: gitlabConfigured && Boolean(localSettings?.gitlabProjects.length), gitlabTickets: gitlabConfigured },
       metrics: {
         repositories: repositories.length,
