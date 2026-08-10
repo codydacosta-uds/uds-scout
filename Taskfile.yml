@@ -50,16 +50,32 @@ tasks:
     desc: Build and start Docker; enter the GitHub token in the setup screen
     deps:
       - docker:build
+    preconditions:
+      - sh: command -v curl >/dev/null 2>&1
+        msg: curl is required to verify that UDS Scout is reachable from the host.
     cmds:
       - docker rm --force {{.DOCKER_CONTAINER}} >/dev/null 2>&1 || true
       - docker rm --force d2d-operations >/dev/null 2>&1 || true
+      # OrbStack can briefly retain a removed container's loopback forwarding entry.
+      - sleep 3
       - >-
         docker run --detach
         --name {{.DOCKER_CONTAINER}}
         --publish 127.0.0.1:{{.PORT | default "3001"}}:3001
         --mount source={{.DOCKER_VOLUME}},target=/data
         {{.DOCKER_IMAGE}}
-      - echo "UDS Scout is starting at http://127.0.0.1:{{.PORT | default "3001"}}"
+      - |
+        attempts=0
+        until curl --fail --silent --max-time 2 http://127.0.0.1:{{.PORT | default "3001"}}/api/setup/status >/dev/null; do
+          attempts=$((attempts + 1))
+          if [ "$attempts" -ge 30 ]; then
+            echo "UDS Scout started in Docker but is not reachable at http://127.0.0.1:{{.PORT | default "3001"}}."
+            docker logs --tail 50 {{.DOCKER_CONTAINER}} || true
+            exit 1
+          fi
+          sleep 1
+        done
+      - echo "UDS Scout is ready at http://127.0.0.1:{{.PORT | default "3001"}}"
       - echo "Open the URL and enter your GitHub token to continue."
     silent: true
 
