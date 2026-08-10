@@ -152,6 +152,10 @@ You can also copy `.env.local.example` to `.env.local`. Never commit `.env.local
 
 Docker runs the standalone production build as a non-root user and persists non-secret workspace settings in a named volume.
 
+### First installation
+
+Clone the repository once, then build and start Scout:
+
 ```bash
 git clone https://github.com/codydacosta-uds/d2d-operations.git
 cd d2d-operations
@@ -160,10 +164,29 @@ task docker:start
 
 Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in setup, and choose repositories. The token remains only in the running container process. The legacy-named `d2d-operations-data` volume is intentionally retained so existing saved selections survive the UDS Scout rename.
 
-Use another host port when needed:
+### Update an existing installation
+
+From a clean checkout on the `main` branch, run:
+
+```bash
+cd d2d-operations
+task update
+```
+
+The update task:
+
+1. Verifies Git, Docker, the `origin` remote, a clean working tree, and the `main` branch.
+2. Fetches `origin/main` and applies it only as a fast-forward update.
+3. Rebuilds the Docker image from the updated source.
+4. Replaces and starts the Scout container while preserving the settings volume.
+
+The task stops instead of overwriting local changes or reconciling a diverged branch. Tokens entered through the setup screen are session-only and must be entered again after the container is replaced; saved non-secret workspace selections remain available.
+
+Use another host port for either start or update when needed:
 
 ```bash
 task docker:start PORT=3002
+task update PORT=3002
 ```
 
 Useful commands:

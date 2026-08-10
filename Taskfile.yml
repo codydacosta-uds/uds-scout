@@ -63,6 +63,27 @@ tasks:
       - echo "Open the URL and enter your GitHub token to continue."
     silent: true
 
+  docker:update:
+    aliases: [update]
+    desc: Pull the latest main branch, rebuild the image, and restart UDS Scout
+    preconditions:
+      - sh: command -v git >/dev/null 2>&1
+        msg: Git is required to update UDS Scout.
+      - sh: test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = "true"
+        msg: Run this task from the cloned UDS Scout repository.
+      - sh: test "$(git branch --show-current)" = "main"
+        msg: Switch to the main branch before updating UDS Scout.
+      - sh: test -z "$(git status --porcelain)"
+        msg: Commit, stash, or remove local changes before updating UDS Scout.
+      - sh: git remote get-url origin >/dev/null 2>&1
+        msg: The cloned repository must have an origin remote.
+      - sh: docker info >/dev/null 2>&1
+        msg: Docker is not running. Start Docker Desktop or another Docker-compatible engine.
+    cmds:
+      - git fetch origin main
+      - git merge --ff-only origin/main
+      - task docker:start PORT={{.PORT | default "3001"}}
+
   docker:stop:
     desc: Stop and remove the Docker container while preserving workspace settings
     cmds:
