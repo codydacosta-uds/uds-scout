@@ -22,6 +22,7 @@ import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import TextFilter from "@cloudscape-design/components/text-filter";
 import { useEffect, useState } from "react";
+import { ActionSuccessFlashbar, PrimaryActionButton } from "./action-ui";
 import type { TestLabActionResult, TestLabBranch, TestLabCatalog, TestLabImageInventory, TestLabPlan, TestLabSession, TestLabWorkflowMode } from "./test-lab-types";
 import { ZeusHealthCard } from "./ZeusHealthCard";
 
@@ -394,7 +395,7 @@ export function TestLab() {
       <SpaceBetween size="l">
         {error ? <Flashbar items={[{ type: "error", header: "Test Lab action failed", content: error, dismissible: true, onDismiss: () => setError(null) }]} /> : null}
         {launchWarning ? <Flashbar items={[{ type: "warning", header: "Pull request test is not ready", content: launchWarning, dismissible: true, onDismiss: () => setLaunchWarning(null) }]} /> : null}
-        {message ? <Flashbar items={[{ type: "success", content: message, dismissible: true, onDismiss: () => setMessage(null) }]} /> : null}
+        {message ? <ActionSuccessFlashbar confirmation={{ header: "Test Lab action accepted", content: message }} onDismiss={() => setMessage(null)} /> : null}
 
         <Grid gridDefinition={[
           { colspan: { default: 12, xs: 6, l: 4 } },
@@ -476,7 +477,7 @@ export function TestLab() {
             ) : <Box color="text-body-secondary">Choose a repository and branch to validate its build, deployment, and test workflow.</Box>}
 
             <SpaceBetween direction="horizontal" size="xs">
-              <span className="test-lab-primary-action"><Button variant="primary" onClick={() => setStartOpen(true)} loading={runningAction === "run-test"} disabled={!canRun}>{workflow === "deploy-only" ? "Deploy branch" : "Build, deploy, and test"}</Button></span>
+              <PrimaryActionButton onClick={() => setStartOpen(true)} loading={runningAction === "run-test"} disabled={!canRun}>{workflow === "deploy-only" ? "Deploy branch" : "Build, deploy, and test"}</PrimaryActionButton>
               {canViewImages ? <Button onClick={() => { setImagePage(1); setImagesOpen(true); }}>Container images</Button> : null}
               {canCleanup ? <Button onClick={() => setCleanupOpen(true)}>Remove deployment</Button> : null}
               {canReset ? <Button onClick={() => runAction("reset")} loading={runningAction === "reset"}>Clear session</Button> : null}
@@ -506,7 +507,7 @@ export function TestLab() {
         </Grid>
       </SpaceBetween>
 
-      <Modal visible={startOpen} onDismiss={() => setStartOpen(false)} header={launchMatchesSelection && launchRequest?.pullRequest ? `Test pull request #${launchRequest.pullRequest}` : workflow === "deploy-only" ? "Deploy branch" : "Start build, deployment, and tests"} footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setStartOpen(false)}>Cancel</Button><span className="test-lab-primary-action"><Button variant="primary" onClick={() => runAction("run-test")} loading={runningAction === "run-test"}>{launchMatchesSelection ? "Start PR test" : "Start workflow"}</Button></span></SpaceBetween></Box>}>
+      <Modal visible={startOpen} onDismiss={() => setStartOpen(false)} header={launchMatchesSelection && launchRequest?.pullRequest ? `Test pull request #${launchRequest.pullRequest}` : workflow === "deploy-only" ? "Deploy branch" : "Start build, deployment, and tests"} footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setStartOpen(false)}>Cancel</Button><PrimaryActionButton onClick={() => runAction("run-test")} loading={runningAction === "run-test"}>{launchMatchesSelection ? "Start PR test" : "Start workflow"}</PrimaryActionButton></SpaceBetween></Box>}>
         <SpaceBetween size="m">
           {launchMatchesSelection && launchRequest?.pullRequest ? <StatusIndicator type="info">Prepared from pull request #{launchRequest.pullRequest}</StatusIndicator> : null}
           <Box>This checks out <Box variant="strong" display="inline">{repository}@{branch}</Box> at the validated branch snapshot and runs {workflow === "deploy-only" ? "this fixed task:" : "these fixed tasks in order:"}</Box>
@@ -562,7 +563,7 @@ export function TestLab() {
         </SpaceBetween>
       </Modal>
 
-      <Modal visible={cleanupOpen} onDismiss={() => setCleanupOpen(false)} header="Remove test deployment" footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setCleanupOpen(false)}>Cancel</Button><Button variant="primary" onClick={() => runAction("cleanup")} loading={runningAction === "cleanup"}>Remove bundle</Button></SpaceBetween></Box>}>
+      <Modal visible={cleanupOpen} onDismiss={() => setCleanupOpen(false)} header="Remove test deployment" footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setCleanupOpen(false)}>Cancel</Button><PrimaryActionButton onClick={() => runAction("cleanup")} loading={runningAction === "cleanup"}>Remove bundle</PrimaryActionButton></SpaceBetween></Box>}>
         <SpaceBetween size="m">
           <Box>This runs UDS removal against the exact generated bundle artifact for <Box variant="strong" display="inline">{session.bundleName}</Box>{session.flavor ? <> using the <Box variant="strong" display="inline">{session.flavor}</Box> flavor</> : null}.</Box>
           <Box variant="code">uds remove {session.bundleArtifact?.split("/").at(-1)} --confirm --no-progress</Box>

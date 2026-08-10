@@ -1,6 +1,7 @@
 import "server-only";
 
 import { githubGraphQL } from "@/lib/github";
+import { analyzeRenovateUpdate } from "@/lib/renovate-update";
 import type { Issue, PullRequest, PullRequestWorkflow } from "@/components/types";
 
 const OPERATIONS_QUERY = `
@@ -368,6 +369,7 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
     reviewRequestedFromViewer,
     automation,
     renovate,
+    renovateUpdate: renovate ? analyzeRenovateUpdate({ body: pull.body, head: pull.headRefName, labels: pull.labels.nodes, title: pull.title }) : null,
     elevatedAutomation,
     ignored,
   };

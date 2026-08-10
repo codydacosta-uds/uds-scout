@@ -11,24 +11,29 @@ import Header from "@cloudscape-design/components/header";
 import KeyValuePairs from "@cloudscape-design/components/key-value-pairs";
 import Link from "@cloudscape-design/components/link";
 import SpaceBetween from "@cloudscape-design/components/space-between";
+import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
+import { useEffect, useRef, useState } from "react";
 import { InfrastructureNodeDrawer } from "./InfrastructureExplorer";
 import { ReleaseNotes } from "./ReleaseNotes";
+import { WorkflowNotes } from "./WorkflowNotes";
+import { isMajorRenovateUpdate, PullRequestCheckStatus, sortRenovateUpdates } from "./RenovateUpdatesTable";
+import type { PipelineFailureDetail } from "./workflow-notes-types";
 import type { InfrastructureExplorerData } from "./infrastructure-types";
 import type { DrawerSelection } from "./operations-types";
 import {
   DrawerKeyValueList,
   DrawerPrimaryButton,
   EmptyState,
-  newestPulls,
   pipelineStatus,
   pullWorkflowStatus,
   PullAuthor,
   PullPeople,
   relativeTime,
+  repositoryAttentionAction,
   repositoryHealth,
   runStatus,
-  udsCommonStatus,
+  udsCommonStatusAction,
   UdsCoreVersion,
 } from "./operations-ui";
 import type { Overview, PullRequest } from "./types";
@@ -104,21 +109,23 @@ function PullRequestDescription({ pull }: { pull: PullRequest }) {
   }
 
   const dependencyTable = table.headers.some((header) => /package|dependency/i.test(header));
-  return (
-    <Container header={<Header variant="h3" counter={`(${table.rows.length})`}>{dependencyTable ? "Dependency changes" : "Structured changes"}</Header>}>
-      <SpaceBetween size="m">
-        <div className="pull-request-change-list">
-          {table.rows.map((row, rowIndex) => (
-            <div className="pull-request-change" key={`${row[0]}-${rowIndex}`}>
-              <Box variant="h4">{row[0] || `Change ${rowIndex + 1}`}</Box>
-              <KeyValuePairs columns={1} items={pullChangeDetails(table.headers, row)} />
-            </div>
-          ))}
-        </div>
-        {table.remaining ? <ExpandableSection headerText="Additional PR details"><div className="pull-request-description">{table.remaining}</div></ExpandableSection> : null}
-      </SpaceBetween>
-    </Container>
+  const details = (
+    <SpaceBetween size="m">
+      <div className="pull-request-change-list">
+        {table.rows.map((row, rowIndex) => (
+          <div className="pull-request-change" key={`${row[0]}-${rowIndex}`}>
+            <Box variant="h4">{row[0] || `Change ${rowIndex + 1}`}</Box>
+            <KeyValuePairs columns={1} items={pullChangeDetails(table.headers, row)} />
+          </div>
+        ))}
+      </div>
+      {table.remaining ? <ExpandableSection headerText="Additional PR details"><div className="pull-request-description">{table.remaining}</div></ExpandableSection> : null}
+    </SpaceBetween>
   );
+
+  return dependencyTable
+    ? <ExpandableSection variant="container" headerText={`Dependency changes (${table.rows.length})`}>{details}</ExpandableSection>
+    : <Container header={<Header variant="h3" counter={`(${table.rows.length})`}>Structured changes</Header>}>{details}</Container>;
 }
 
 function CenteredDrawerEmptyState({ title, detail }: { title: string; detail: string }) {
@@ -143,6 +150,153 @@ function DrawerPullOption({ pull, repository, generatedAt, onOpen, children }: {
   );
 }
 
+type PullCheckReference = { name: string; url: string | null };
+
+function workflowRunId(url: string | null | undefined) {
+  return url?.match(/\/actions\/runs\/(\d+)/)?.[1] ?? null;
+}
+
+function FailureWorkingNotes({ viewer, noteKey, durableHref }: {
+  viewer: string;
+  noteKey: string;
+  durableHref: string;
+}) {
+  return <Container header={<Header variant="h3">Failure working notes</Header>}><WorkflowNotes viewer={viewer} noteKey={noteKey} durableHref={durableHref} /></Container>;
+}
+
+function SelectedPipelineFailure({ repository, runId, checkName, noteKey, durableHref, viewer, notesOpen, attentionPulse }: {
+  repository: string;
+  runId: string | null;
+  checkName: string;
+  noteKey: string;
+  durableHref: string;
+  viewer: string;
+  notesOpen: boolean;
+  attentionPulse: number;
+}) {
+  const [detail, setDetail] = useState<PipelineFailureDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!runId) return;
+    const controller = new AbortController();
+    fetch(`/api/github/workflow-failure?repository=${encodeURIComponent(repository)}&run=${encodeURIComponent(runId)}`, { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json() as PipelineFailureDetail & { error?: string };
+        if (!response.ok) throw new Error(data.error ?? "Workflow failure details could not be loaded.");
+        return data;
+      })
+      .then(setDetail)
+      .catch((reason) => {
+        if (reason.name !== "AbortError") setError(reason instanceof Error ? reason.message : "Workflow failure details could not be loaded.");
+      });
+    return () => controller.abort();
+  }, [repository, runId]);
+
+  const exactJob = detail?.jobs.find((job) => job.name.toLowerCase() === checkName.toLowerCase()) ?? null;
+  const visibleJobs = exactJob ? [exactJob] : detail?.jobs ?? [];
+
+  return (
+    <SpaceBetween size="m">
+      {runId && !detail && !error ? <Box color="text-body-secondary"><Spinner /> Loading failed job and step details</Box> : null}
+      {error ? <StatusIndicator type="warning">{error}</StatusIndicator> : null}
+      {detail ? exactJob ? (
+        <SpaceBetween size="s">
+          {exactJob.failedSteps.length ? <SpaceBetween size="xxs">{exactJob.failedSteps.map((step) => <div className="drawer-failed-step" key={`${exactJob.id}-${step.number}`}><StatusIndicator type={step.conclusion === "cancelled" ? "stopped" : "error"}>{step.conclusion === "cancelled" ? "Cancelled step" : "Failed step"}</StatusIndicator><Box>{step.name}</Box></div>)}</SpaceBetween> : <Box color="text-body-secondary">GitHub did not identify a failed step for this job.</Box>}
+          <SpaceBetween direction="horizontal" size="s"><Link href={exactJob.url} external>Open job</Link><Link href={detail.run.url} external>Open workflow run</Link></SpaceBetween>
+        </SpaceBetween>
+      ) : (
+        <SpaceBetween size="s">
+          {visibleJobs.length ? visibleJobs.map((job) => (
+            <div className="drawer-failed-job" key={job.id}>
+              <div className="drawer-pipeline-heading"><StatusIndicator type={job.conclusion === "cancelled" ? "stopped" : "error"}>{job.conclusion === "cancelled" ? "Cancelled" : "Failed"}</StatusIndicator><Link href={job.url} external>{job.name}</Link></div>
+              {job.failedSteps.length ? <SpaceBetween size="xxs">{job.failedSteps.map((step) => <div className="drawer-failed-step" key={`${job.id}-${step.number}`}><StatusIndicator type={step.conclusion === "cancelled" ? "stopped" : "error"}>{step.conclusion === "cancelled" ? "Cancelled step" : "Failed step"}</StatusIndicator><Box>{step.name}</Box></div>)}</SpaceBetween> : null}
+            </div>
+          )) : <Box color="text-body-secondary">GitHub did not return a failed job for this run.</Box>}
+          <Link href={detail.run.url} external>Open workflow run</Link>
+        </SpaceBetween>
+      ) : null}
+      {notesOpen ? <div className={`drawer-notes-scroll-target${attentionPulse ? ` drawer-failure-details-attention-${attentionPulse % 2 ? "a" : "b"}` : ""}`}><Container header={<Header variant="h3">Working notes</Header>}><WorkflowNotes viewer={viewer} noteKey={noteKey} durableHref={durableHref} /></Container></div> : null}
+    </SpaceBetween>
+  );
+}
+
+function PullRequestFailureWorkspace({ pull, repository, overview, focusOnOpen }: {
+  pull: PullRequest;
+  repository: string;
+  overview: Overview;
+  focusOnOpen: boolean;
+}) {
+  const failingChecks = pull.workflow.checks.rollup.failingChecks ?? pull.workflow.checks.rollup.failingNames.map((name) => ({ name, url: null }));
+  const cancelledChecks = pull.workflow.checks.rollup.cancelledChecks ?? pull.workflow.checks.rollup.cancelledNames.map((name) => ({ name, url: null }));
+  const pendingChecks = pull.workflow.checks.rollup.pendingChecks ?? [];
+  const actionableChecks = [
+    ...failingChecks.map((check) => ({ ...check, status: "failed" as const })),
+    ...cancelledChecks.map((check) => ({ ...check, status: "cancelled" as const })),
+  ];
+  const [selectedKey, setSelectedKey] = useState(() => actionableChecks[0] ? `${actionableChecks[0].status}:${actionableChecks[0].name}:${actionableChecks[0].url ?? ""}` : "");
+  const [attentionPulse, setAttentionPulse] = useState(0);
+  const [expanded, setExpanded] = useState(focusOnOpen);
+  const notesOpen = true;
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const detailsRef = useRef<HTMLDivElement>(null);
+  const selectedCheck = actionableChecks.find((check) => `${check.status}:${check.name}:${check.url ?? ""}` === selectedKey) ?? actionableChecks[0] ?? null;
+  const relatedFailures = overview.workflowFailures.filter((failure) => failure.repository === repository && failure.blocksPullRequest === pull.number);
+  const matchedFailure = selectedCheck ? relatedFailures.find((failure) => {
+    const checkRun = workflowRunId(selectedCheck.url);
+    const failureRun = workflowRunId(failure.url);
+    return checkRun && failureRun ? checkRun === failureRun : failure.name.toLowerCase() === selectedCheck.name.toLowerCase();
+  }) ?? (relatedFailures.length === 1 ? relatedFailures[0] : null) : null;
+  const selectedRunId = workflowRunId(selectedCheck?.url) ?? (matchedFailure ? String(matchedFailure.id) : null);
+  const selectedJobId = selectedCheck?.url?.match(/\/job\/(\d+)/)?.[1] ?? null;
+  const selectedNoteKey = selectedCheck ? `${repository}:pipeline:${selectedRunId ?? pull.workflow.headSha ?? pull.number}:failure:${selectedJobId ?? selectedCheck.name}` : null;
+  const checkUrl = (check: PullCheckReference) => check.url ?? `${pull.url}/checks`;
+  const scrollBehavior = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" as const : "smooth" as const;
+  const scrollToSelectedFailure = () => detailsRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+
+  useEffect(() => {
+    if (!focusOnOpen) return;
+    const timer = window.setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }), 120);
+    return () => window.clearTimeout(timer);
+  }, [focusOnOpen]);
+
+  if (!actionableChecks.length && !pendingChecks.length) return null;
+
+  return (
+    <div ref={sectionRef} className="drawer-failed-checks-scroll-target"><ExpandableSection variant="container" headerText={`Failed pipeline checks (${actionableChecks.length + pendingChecks.length})`} expanded={expanded} onChange={({ detail }) => setExpanded(detail.expanded)}>
+      <SpaceBetween size="m">
+        {actionableChecks.length ? <div className="drawer-failure-list">{actionableChecks.map((check) => {
+          const key = `${check.status}:${check.name}:${check.url ?? ""}`;
+          const runId = workflowRunId(check.url);
+          const failure = relatedFailures.find((candidate) => runId && workflowRunId(candidate.url) === runId) ?? null;
+          return (
+            <div className={`drawer-failure-option${key === selectedKey ? " drawer-failure-option-selected" : ""}`} key={key}>
+              <div className="drawer-pipeline-heading">
+                <StatusIndicator type={check.status === "failed" ? "error" : "stopped"}>{check.status === "failed" ? "Failed" : "Cancelled"}</StatusIndicator>
+                <Button variant="inline-link" onClick={() => { setSelectedKey(key); setAttentionPulse((value) => value + 1); scrollToSelectedFailure(); }}>{check.name}</Button>
+                <Button variant="icon" iconName="edit" ariaLabel={`Open working notes for ${check.name}`} onClick={() => { setSelectedKey(key); setAttentionPulse((value) => value + 1); scrollToSelectedFailure(); }} />
+              </div>
+              {failure?.failedJob || failure?.failedStep ? <Box color="text-body-secondary">{failure.failedJob ?? "Failed job"}{failure.failedStep ? ` · ${failure.failedStep}` : ""}</Box> : <Box color="text-body-secondary">Select to view failed job and step details.</Box>}
+              <Link href={checkUrl(check)} external>Open check or workflow run</Link>
+            </div>
+          );
+        })}</div> : null}
+
+        {pendingChecks.length ? <ExpandableSection variant="inline" headerText={`${pendingChecks.length} running ${pendingChecks.length === 1 ? "check" : "checks"}`}>{pendingChecks.map((check) => <div className="drawer-check-result" key={`running-${check.name}-${check.url ?? ""}`}><StatusIndicator type="in-progress">Running</StatusIndicator><Link href={checkUrl(check)} external>{check.name}</Link></div>)}</ExpandableSection> : null}
+
+        {selectedCheck && selectedNoteKey ? (
+          <div ref={detailsRef} className="drawer-failure-details">
+            <SpaceBetween size="xs">
+              <Header variant="h3"><span className="drawer-selected-failure-heading">{selectedCheck.name}</span></Header>
+              <SelectedPipelineFailure key={`${selectedNoteKey}:${selectedCheck.name}`} repository={repository} runId={selectedRunId} checkName={selectedCheck.name} noteKey={selectedNoteKey} durableHref={pull.url} viewer={overview.viewer.login} notesOpen={notesOpen} attentionPulse={attentionPulse} />
+            </SpaceBetween>
+          </div>
+        ) : null}
+      </SpaceBetween>
+    </ExpandableSection></div>
+  );
+}
+
 export function OperationsDrawer({ selection, overview, infrastructure, onSelect, navigate }: {
   selection: DrawerSelection;
   overview: Overview;
@@ -159,9 +313,25 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const checkIssueCount = pull.workflow.checks.rollup.failing + pull.workflow.checks.rollup.cancelled;
     const checkActivityCount = checkIssueCount + pull.workflow.checks.rollup.pending;
     const checkResultsUrl = checkActivityCount ? `${pull.url}/checks` : null;
-    const pendingChecks = pull.workflow.checks.rollup.pendingChecks ?? [];
-    const failingChecks = pull.workflow.checks.rollup.failingChecks ?? pull.workflow.checks.rollup.failingNames.map((name) => ({ name, url: null }));
-    const cancelledChecks = pull.workflow.checks.rollup.cancelledChecks ?? pull.workflow.checks.rollup.cancelledNames.map((name) => ({ name, url: null }));
+    const checkRollup = pull.workflow.checks.rollup;
+    const readinessParts = [pull.draft ? "Draft" : pull.workflow.mergeable === "MERGEABLE" ? "Mergeable" : pull.workflow.mergeable === "CONFLICTING" ? "Merge conflicts" : "Mergeability pending"];
+    if (checkRollup.failing) readinessParts.push(`${checkRollup.failing} ${checkRollup.failing === 1 ? "check" : "checks"} failed`);
+    else if (checkRollup.cancelled) readinessParts.push(`${checkRollup.cancelled} ${checkRollup.cancelled === 1 ? "check" : "checks"} cancelled`);
+    else if (checkRollup.pending) readinessParts.push(`${checkRollup.pending} ${checkRollup.pending === 1 ? "check" : "checks"} running`);
+    else if (pull.workflow.checks.total) readinessParts.push(`${checkRollup.passed} ${checkRollup.passed === 1 ? "check" : "checks"} passed`);
+    else readinessParts.push("No checks reported");
+    const readinessType = pull.workflow.mergeable === "CONFLICTING" || checkRollup.failing ? "error" : pull.draft || pull.workflow.mergeable === "UNKNOWN" || checkRollup.cancelled || checkRollup.pending ? "warning" : "success";
+    const readinessStatus = <StatusIndicator type={readinessType}>{readinessParts.join(" · ")}</StatusIndicator>;
+    const summaryItems: { label: React.ReactNode; value: React.ReactNode }[] = [
+      { label: "Repository", value: selection.repository ?? "Unknown" },
+      { label: "Author", value: <PullAuthor pull={pull} /> },
+      { label: "Readiness", value: checkIssueCount ? <Button variant="inline-link" ariaLabel="Open failed pipeline checks" onClick={() => onSelect({ ...selection, focus: "failed-checks", focusRequest: Date.now() })}>{readinessStatus}</Button> : readinessStatus },
+    ];
+    if (pull.workflow.approvals.required !== null && pull.workflow.approvals.count < pull.workflow.approvals.required) summaryItems.push({ label: "Approvals needed", value: `${pull.workflow.approvals.count} of ${pull.workflow.approvals.required} received` });
+    if (pull.assignees.length) summaryItems.push({ label: "Assigned to", value: <PullPeople people={pull.assignees} /> });
+    if (pull.requestedReviewers.length) summaryItems.push({ label: "Review requested from", value: <PullPeople people={pull.requestedReviewers} /> });
+    if (pull.workflow.waitingOn.length) summaryItems.push({ label: "Waiting on", value: pull.workflow.waitingOn.join(", ") });
+    summaryItems.push({ label: "Updated", value: relativeTime(pull.updatedAt, overview.generatedAt) });
     return (
       <Drawer
         header={`Pull request #${pull.number}`}
@@ -169,35 +339,28 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
       >
         <SpaceBetween size="l">
           <Box variant="h3">{pull.title}</Box>
-          <DrawerKeyValueList items={[
-            { label: "Repository", value: selection.repository ?? "Unknown" },
-            { label: "Author", value: <PullAuthor pull={pull} /> },
-            { label: "Source branch", value: <Box variant="code">{pull.head}</Box> },
-            { label: "Target branch", value: <Box variant="code">{pull.base}</Box> },
-            { label: "Workflow state", value: pullWorkflowStatus(pull) },
-            { label: "Why this matters", value: pull.workflow.reason },
-            { label: "Approvals", value: pull.workflow.approvals.required === null ? `${pull.workflow.approvals.count} · required count unavailable` : `${pull.workflow.approvals.count} of ${pull.workflow.approvals.required} required` },
-            { label: "Required checks", value: pull.workflow.checks.summary },
-            { label: "Check rollup", value: pull.workflow.checks.total ? `${pull.workflow.checks.rollup.passed} passed · ${pull.workflow.checks.rollup.pending} running · ${pull.workflow.checks.rollup.failing} failed · ${pull.workflow.checks.rollup.cancelled} cancelled` : "No checks reported" },
-            { label: "Mergeable", value: pull.workflow.mergeable === "MERGEABLE" ? "Yes" : pull.workflow.mergeable === "CONFLICTING" ? "No — conflicts detected" : "Unable to verify" },
-            { label: "Assigned to", value: <PullPeople people={pull.assignees} /> },
-            { label: "Review requested from", value: <PullPeople people={pull.requestedReviewers} empty="No reviewers requested" /> },
-            { label: "Waiting on", value: pull.workflow.waitingOn.length ? pull.workflow.waitingOn.join(", ") : "No specific person identified" },
-            { label: "Age", value: relativeTime(pull.createdAt, overview.generatedAt) },
-            { label: "Updated", value: relativeTime(pull.updatedAt, overview.generatedAt) },
-          ]} />
-          {checkActivityCount ? (
-            <Container header={<Header variant="h3" counter={`(${checkActivityCount})`}>Check activity</Header>}>
-              <SpaceBetween size="s">
-                {failingChecks.map((check, index) => <div className="drawer-check-result" key={`failed-${check.name}-${check.url ?? index}`}><StatusIndicator type="error">Failed</StatusIndicator><Link href={check.url ?? checkResultsUrl ?? pull.url} external>{check.name}</Link></div>)}
-                {cancelledChecks.map((check, index) => <div className="drawer-check-result" key={`cancelled-${check.name}-${check.url ?? index}`}><StatusIndicator type="stopped">Cancelled</StatusIndicator><Link href={check.url ?? checkResultsUrl ?? pull.url} external>{check.name}</Link></div>)}
-                {pendingChecks.map((check, index) => <div className="drawer-check-result" key={`running-${check.name}-${check.url ?? index}`}><StatusIndicator type="in-progress">Running</StatusIndicator><Link href={check.url ?? checkResultsUrl ?? pull.url} external>{check.name}</Link></div>)}
+          {pull.workflow.blockers.length ? <SpaceBetween size="xs">{pull.workflow.blockers.map((blocker) => <StatusIndicator type={pull.workflow.checks.failing && blocker.toLowerCase().includes("failing") ? "error" : "warning"} key={blocker}>{blocker}</StatusIndicator>)}</SpaceBetween> : null}
+          {pull.workflow.renovateUpdate?.major ? (
+            <Container header={<Header variant="h3">Major version change</Header>}>
+              <SpaceBetween size="xs">
+                <StatusIndicator type="warning">Prioritize compatibility and migration review</StatusIndicator>
+                {pull.workflow.renovateUpdate.majorChanges.length ? pull.workflow.renovateUpdate.majorChanges.map((change, index) => <Box key={`${change.dependency ?? "dependency"}-${change.from}-${change.to}-${index}`}><Box variant="strong" display="inline">{change.dependency ?? "Dependency"}: </Box><Box variant="code" display="inline">{change.from}</Box>{" → "}<Box variant="code" display="inline">{change.to}</Box></Box>) : <Box color="text-body-secondary">Renovate marked this as a major update. Open the pull request for the complete version details.</Box>}
               </SpaceBetween>
             </Container>
           ) : null}
-          {pull.workflow.blockers.length ? <Container header={<Header variant="h3">Blocking progress</Header>}><SpaceBetween size="xs">{pull.workflow.blockers.map((blocker) => <StatusIndicator type={pull.workflow.checks.failing && blocker.toLowerCase().includes("failing") ? "error" : "warning"} key={blocker}>{blocker}</StatusIndicator>)}</SpaceBetween></Container> : null}
+          <DrawerKeyValueList items={summaryItems} />
+          <ExpandableSection variant="container" headerText="Pull request details">
+            <DrawerKeyValueList items={[
+              { label: "Source branch", value: <Box variant="code">{pull.head}</Box> },
+              { label: "Target branch", value: <Box variant="code">{pull.base}</Box> },
+              { label: "Workflow state", value: pullWorkflowStatus(pull) },
+              { label: "Required checks", value: pull.workflow.checks.summary },
+              { label: "Check rollup", value: pull.workflow.checks.total ? `${checkRollup.passed} passed · ${checkRollup.pending} running · ${checkRollup.failing} failed · ${checkRollup.cancelled} cancelled` : "No checks reported" },
+              { label: "Opened", value: relativeTime(pull.createdAt, overview.generatedAt) },
+            ]} />
+          </ExpandableSection>
+          {checkActivityCount ? <PullRequestFailureWorkspace key={`${selection.repository ?? pull.repository ?? "repository"}-${pull.id}-${pull.workflow.headSha ?? "head"}-${selection.focus ?? "default"}-${selection.focusRequest ?? 0}`} pull={pull} repository={selection.repository ?? pull.repository ?? "Unknown"} overview={overview} focusOnOpen={selection.focus === "failed-checks"} /> : null}
           <PullRequestDescription pull={pull} />
-          {pull.labels.length ? <SpaceBetween direction="horizontal" size="xs">{pull.labels.map((label) => <Badge key={label.name}>{label.name}</Badge>)}</SpaceBetween> : null}
         </SpaceBetween>
       </Drawer>
     );
@@ -224,6 +387,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
             { label: "Blocks pull request", value: failure.blocksPullRequest ? `#${failure.blocksPullRequest}` : "Not known to block a selected pull request" },
             { label: "Age", value: relativeTime(failure.updatedAt, overview.generatedAt) },
           ]} />
+          <FailureWorkingNotes viewer={overview.viewer.login} noteKey={`${failure.repository}:pipeline:${workflowRunId(failure.url) ?? failure.id}:failure:${failure.failedJob ?? failure.name}`} durableHref={failure.blocksPullRequest ? `https://github.com/${failure.repository}/pull/${failure.blocksPullRequest}` : failure.url} />
           <Box color="text-body-secondary">UDS Scout does not retrieve or display full workflow logs. Open GitHub for log-level investigation.</Box>
         </SpaceBetween>
       </Drawer>
@@ -271,18 +435,22 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 
   if (selection.type === "repository") {
     const repository = selection.repository;
+    const attentionAction = repositoryAttentionAction(repository, overview);
     return (
       <Drawer header={repository.name} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton onClick={() => navigate(`/repositories/${repository.fullName}`)}>Open repository page</DrawerPrimaryButton><Button href={repository.url} external>GitHub</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box color="text-body-secondary">{repository.description ?? "Tracked repository"}</Box>
-          {repositoryHealth(repository)}
-          <Box>{repository.attention.reason}</Box>
+          <SpaceBetween size="s">
+            {repositoryHealth(repository)}
+            <Box>{repository.attention.reason}</Box>
+            {attentionAction ? <div><DrawerPrimaryButton onClick={() => onSelect(attentionAction.selection)}>{attentionAction.label}</DrawerPrimaryButton></div> : null}
+          </SpaceBetween>
           <DrawerKeyValueList items={[
             { label: "Repository", value: repository.fullName },
             { label: "Open pull requests", value: `${repository.openPullRequests} · ${repository.workflowCounts.waitingOnMe} waiting on you · ${repository.workflowCounts.blocked} blocked · ${repository.workflowCounts.readyToMerge} ready` },
             { label: "Renovate updates", value: repository.renovatePulls },
             { label: "Your review requests", value: repository.reviewRequests },
-            { label: "UDS Common", value: udsCommonStatus(repository.udsCommon) },
+            { label: "UDS Common", value: udsCommonStatusAction(repository.udsCommon, () => onSelect({ type: "uds-common", repository: repository.fullName })) },
             { label: "Open issues", value: repository.issueCount },
             { label: "Latest pipeline", value: pipelineStatus(repository.pipeline) },
             { label: "Last updated", value: relativeTime(repository.updatedAt, overview.generatedAt) },
@@ -381,7 +549,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
           {repositories.map((item) => (
             <Container key={item.repository} header={<Header variant="h3">{item.repository}</Header>}>
               <SpaceBetween size="s">
-                {udsCommonStatus(item)}
+                {udsCommonStatusAction(item)}
                 <DrawerKeyValueList items={[
                   { label: "Referenced version", value: item.versions.length ? item.versions.join(", ") : "Not detected" },
                   { label: "Common includes", value: item.includes.length },
@@ -440,12 +608,13 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   }
 
   if (selection.type === "my-work") {
-    const pulls = selection.queue === "waiting-on-me" ? overview.myWork.waitingOnMe
+    const queuePulls = selection.queue === "waiting-on-me" ? overview.myWork.waitingOnMe
       : selection.queue === "waiting-on-others" ? overview.myWork.waitingOnOthers
         : selection.queue === "blocked" ? overview.myWork.blocked
           : selection.queue === "ready-to-merge" ? overview.myWork.readyToMerge
             : selection.queue === "needs-ownership" ? overview.myWork.needsOwnership
               : [];
+    const pulls = queuePulls.filter((pull) => !selection.repository || pull.repository === selection.repository);
     const titles = {
       "waiting-on-me": "Waiting on me",
       "waiting-on-others": "Waiting on someone else",
@@ -501,15 +670,16 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   }
 
   if (selection.type === "renovate") {
-    const pulls = newestPulls(overview.renovate.pulls.filter((pull) =>
-      (!selection.repository || pull.repository === selection.repository) && (!selection.unassignedOnly || (
-        pull.assignees.length === 0 && !pull.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase())
-      )),
+    const pulls = sortRenovateUpdates(overview.renovate.pulls.filter((pull) =>
+      (!selection.repository || pull.repository === selection.repository)
+      && (!selection.majorOnly || isMajorRenovateUpdate(pull))
+      && (!selection.unassignedOnly || (pull.assignees.length === 0 && !pull.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase()))),
     ));
-    const fullHref = selection.repository ? `/renovate?repository=${encodeURIComponent(selection.repository)}` : "/renovate";
+    const fullHref = selection.majorOnly ? "/renovate?view=major" : selection.repository ? `/renovate?repository=${encodeURIComponent(selection.repository)}` : "/renovate";
+    const drawerTitle = selection.majorOnly ? "Major Renovate updates" : selection.unassignedOnly ? "Unassigned Renovate updates" : "Renovate updates";
     return (
-      <Drawer header={selection.unassignedOnly ? "Unassigned Renovate updates" : "Renovate updates"} footer={<DrawerPrimaryButton onClick={() => navigate(fullHref)}>Open full Renovate list</DrawerPrimaryButton>}>
-        {pulls.length ? <SpaceBetween size="m">{pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}>{pull.assignees.length ? <StatusIndicator type="in-progress">Assigned to {pull.assignees.map((assignee) => assignee.login).join(", ")}</StatusIndicator> : <StatusIndicator type="warning">Unassigned</StatusIndicator>}</DrawerPullOption> : null)}</SpaceBetween> : <CenteredDrawerEmptyState title="No Renovate updates need attention" detail="Open updates are assigned, waiting for your review, or complete." />}
+      <Drawer header={drawerTitle} footer={<DrawerPrimaryButton onClick={() => navigate(fullHref)}>Open full Renovate list</DrawerPrimaryButton>}>
+        {pulls.length ? <SpaceBetween size="m">{pulls.map((pull) => pull.repository ? <DrawerPullOption key={`${pull.repository}-${pull.id}`} pull={pull} repository={pull.repository} generatedAt={overview.generatedAt} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository })}>{selection.majorOnly ? <SpaceBetween direction="horizontal" size="s"><Badge color="red">Major version</Badge><PullRequestCheckStatus pull={pull} onOpen={() => onSelect({ type: "pull-request", pull, repository: pull.repository, focus: "failed-checks" })} /></SpaceBetween> : pull.assignees.length ? <StatusIndicator type="in-progress">Assigned to {pull.assignees.map((assignee) => assignee.login).join(", ")}</StatusIndicator> : <StatusIndicator type="warning">Unassigned</StatusIndicator>}</DrawerPullOption> : null)}</SpaceBetween> : <CenteredDrawerEmptyState title={selection.majorOnly ? "No major Renovate updates" : "No Renovate updates need attention"} detail={selection.majorOnly ? "No open Renovate pull request contains a detected major-version change." : "Open updates are assigned, waiting for your review, or complete."} />}
       </Drawer>
     );
   }

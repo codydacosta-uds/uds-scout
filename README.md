@@ -2,6 +2,8 @@
 
 UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of repositories. It brings review work, dependency updates, issues, pipeline failures, version alignment, and infrastructure knowledge into one focused interface.
 
+See [CHANGELOG.md](CHANGELOG.md) for released and upcoming user-facing changes.
+
 The current release uses GitHub as the primary repository dashboard. GitLab is an optional integration for assigned work items and explicitly confirmed ticket creation; a separate full GitLab operations dashboard is planned rather than mixing providers into one view.
 
 ## Supporting UDS package maintainers
@@ -10,7 +12,7 @@ UDS Scout is designed to reduce the day-to-day toil of maintaining packages acro
 
 Scout helps maintainers:
 
-- Start with work that needs a decision or handoff rather than manually checking every repository.
+- Start with work that needs a decision or handoff rather than manually checking every repository, with concise first-run guidance toward **My work today**, warning states, and focused Renovate review.
 - Distinguish routine Renovate updates from dependency changes with failures, conflicts, direct requests, or other observable blockers.
 - Find failed default-branch pipelines and checks blocking pull requests without searching across workflow pages.
 - Track UDS Core and UDS Common alignment without manually comparing every package configuration.
@@ -34,9 +36,10 @@ Scout does not replace maintainer judgment or silently mutate repositories. It a
 - Detect unresolved GitHub Actions failures across selected repositories.
 - Prioritize default-branch failures and failures known to block an open pull request.
 - Show failed jobs and steps when GitHub provides them, while leaving full logs in GitHub.
+- Open failed pull-request checks in a controlled drawer with exact run links and a browser-local, checkable next-step queue for resuming investigation.
 - Identify Renovate pull requests only when Renovate authored them from a `renovate/*` source branch.
 - Separate routine Renovate updates from updates with observable blockers, direct requests, conflicts, failed required checks, or configured priority labels.
-- Provide an operator-configurable weekly Renovate review table with failed, running, passed, and no-check filters.
+- Provide an operator-configurable weekly Renovate review table focused by default on failed or cancelled updates and major-version changes, with additional pipeline filters and a browser-local show/hide override for the current day.
 
 ### UDS and repository health
 
@@ -127,13 +130,24 @@ On first boot:
 4. If GitLab is connected, select the GitLab projects used for assigned work items and choose an optional default ticket project.
 5. Save the workspace and continue to the dashboard.
 
-Tokens entered in the browser are validated by the server and retained only for the current app process. Non-secret selections are stored with local-user permissions at:
+Tokens entered in the browser are validated by the server and retained only for the current app process. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Non-secret selections are stored with local-user permissions at:
 
 ```text
 ~/.config/uds-scout/settings.json
 ```
 
 Existing `~/.config/d2d-operations/settings.json` settings continue to load when the new path does not yet exist. Use **Workspace settings** to manage connections and selections or **Run setup again** to replay setup without clearing the active workspace before a replacement selection is saved.
+
+Repository quick-select groups are defined in [`config/repository-groups.json`](config/repository-groups.json) as a group name and a list of `owner/repository` values. Configured groups are read-only in Scout and are merged with any user-created groups saved in workspace settings. Restart or rebuild Scout after changing the repository config.
+
+```json
+{
+  "Package maintainers": [
+    "example/package-one",
+    "example/package-two"
+  ]
+}
+```
 
 You can also copy `.env.local.example` to `.env.local`. Never commit `.env.local` or another file containing real credentials.
 

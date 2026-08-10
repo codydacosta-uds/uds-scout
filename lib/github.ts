@@ -230,9 +230,59 @@ export async function githubContributorCount(repository: string, ttl = 30 * 60_0
   return count;
 }
 
+type NetworkErrorDetail = {
+  cause?: unknown;
+  code?: unknown;
+  message?: unknown;
+  name?: unknown;
+};
+
+function networkErrorChain(error: unknown) {
+  const chain: NetworkErrorDetail[] = [];
+  let current = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
+    const detail = current as NetworkErrorDetail;
+    chain.push(detail);
+    if (!detail.cause || detail.cause === current) break;
+    current = detail.cause;
+  }
+  return chain;
+}
+
+function githubNetworkError(error: unknown) {
+  const chain = networkErrorChain(error);
+  const codes = new Set(chain.flatMap((detail) => typeof detail.code === "string" ? [detail.code] : []));
+  const fetchFailed = chain.some((detail) => detail.name === "TypeError" && detail.message === "fetch failed");
+
+  if (codes.has("EAI_AGAIN") || codes.has("ENOTFOUND")) {
+    return {
+      message: "GitHub could not be reached because Scout could not resolve api.github.com. Check the Docker or host network connection, then try again.",
+      status: 503,
+    };
+  }
+  if (["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT"].some((code) => codes.has(code))) {
+    return {
+      message: "GitHub did not respond before the connection timed out. Check the Docker or host network connection, then try again.",
+      status: 503,
+    };
+  }
+  if (fetchFailed || ["ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH"].some((code) => codes.has(code))) {
+    return {
+      message: "Scout could not connect to GitHub. Check the Docker or host network connection, then try again.",
+      status: 503,
+    };
+  }
+  return null;
+}
+
 export function apiError(error: unknown) {
   if (error instanceof GitHubApiError) {
     return { message: error.message, status: error.status };
+  }
+  const networkFailure = githubNetworkError(error);
+  if (networkFailure) {
+    console.error("GitHub network request failed.", error);
+    return networkFailure;
   }
   console.error(error);
   return { message: "An unexpected server error occurred.", status: 500 };
@@ -361,6 +411,7 @@ export function presentPull(pull: RawPull) {
       reviewRequestedFromViewer: false,
       automation: false,
       renovate: false,
+      renovateUpdate: null,
       elevatedAutomation: false,
       ignored,
     },

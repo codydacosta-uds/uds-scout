@@ -5,6 +5,8 @@ import Icon from "@cloudscape-design/components/icon";
 import Link from "@cloudscape-design/components/link";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
+import { PrimaryActionButton } from "./action-ui";
+import type { DrawerSelection } from "./operations-types";
 import type { Overview, PipelineRun, PullRequest, Repository, UdsCommonRepository } from "./types";
 
 export function relativeTime(date: string | null, generatedAt: string) {
@@ -23,16 +25,8 @@ export function newestPulls<T extends PullRequest>(pulls: readonly T[]) {
   return [...pulls].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-const drawerPrimaryActionStyle = {
-  root: {
-    background: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
-    borderColor: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
-    color: { default: "#0b0c0e", hover: "#0b0c0e", active: "#0b0c0e" },
-  },
-} as const;
-
 export function DrawerPrimaryButton(props: ButtonProps) {
-  return <Button {...props} variant="primary" style={drawerPrimaryActionStyle} />;
+  return <PrimaryActionButton {...props} />;
 }
 
 export function pipelineFailed(conclusion: string | null | undefined) {
@@ -62,6 +56,17 @@ export function repositoryHealth(repository: Repository) {
   return <StatusIndicator type="pending">Status unavailable</StatusIndicator>;
 }
 
+export function repositoryAttentionAction(repository: Repository, overview: Overview): { label: string; selection: DrawerSelection } | null {
+  if (pipelineFailed(repository.pipeline?.conclusion)) return { label: "View workflow failure", selection: { type: "pipelines", repository: repository.fullName } };
+  if (repository.workflowCounts.waitingOnMe) return { label: "View pull requests waiting on you", selection: { type: "my-work", queue: "waiting-on-me", repository: repository.fullName } };
+  if (repository.workflowCounts.blocked) return { label: "View blocked pull requests", selection: { type: "my-work", queue: "blocked", repository: repository.fullName } };
+  if (repository.workflowCounts.readyToMerge) return { label: "View pull requests ready to merge", selection: { type: "my-work", queue: "ready-to-merge", repository: repository.fullName } };
+  if (overview.myWork.needsOwnership.some((pull) => pull.repository === repository.fullName)) return { label: "View pull requests needing ownership", selection: { type: "my-work", queue: "needs-ownership", repository: repository.fullName } };
+  if (repository.udsCommon && repository.udsCommon.status !== "current") return { label: "Review UDS Common configuration", selection: { type: "uds-common", repository: repository.fullName } };
+  if (repository.attention.level === "monitor" || repository.attention.level === "unknown") return { label: "View workflow status", selection: { type: "pipelines", repository: repository.fullName } };
+  return null;
+}
+
 export function pullWorkflowStatus(pull: PullRequest) {
   const state = pull.workflow.state;
   if (pull.workflow.automation && !pull.workflow.elevatedAutomation && pull.workflow.label === "Routine update") return <StatusIndicator type="pending">Routine update</StatusIndicator>;
@@ -80,6 +85,12 @@ export function udsCommonStatus(item: UdsCommonRepository | Repository["udsCommo
   if (item.status === "missing") return <StatusIndicator type="warning">tasks.yaml missing</StatusIndicator>;
   if (item.status === "not-configured") return <StatusIndicator type="warning">Not configured</StatusIndicator>;
   return <StatusIndicator type="pending">Unable to verify</StatusIndicator>;
+}
+
+export function udsCommonStatusAction(item: UdsCommonRepository | Repository["udsCommon"], onDetails?: () => void) {
+  const status = udsCommonStatus(item);
+  if (item?.status === "outdated" && item.tasksUrl) return <Link href={item.tasksUrl} external ariaLabel="Open the outdated UDS Common tasks.yaml file">{status}</Link>;
+  return onDetails ? <Button variant="inline-link" onClick={onDetails}>{status}</Button> : status;
 }
 
 export function PullAuthor({ pull }: { pull: PullRequest }) {
@@ -137,7 +148,7 @@ export function DrawerKeyValueList({ items }: {
   );
 }
 
-export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, warningHighlight = false, successHighlight = false }: {
+export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, errorValue = false, warningHighlight = false, successHighlight = false }: {
   title: string;
   value: React.ReactNode;
   description: string;
@@ -145,6 +156,7 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
   indicator?: { type: "warning" | "error" | "success" | "pending" | "info"; label: string };
   onDetails?: () => void;
   attention?: boolean;
+  errorValue?: boolean;
   warningHighlight?: boolean;
   successHighlight?: boolean;
 }) {
@@ -161,7 +173,7 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
       {indicator && onDetails ? <button type="button" className={`metric-card-indicator metric-card-indicator-${indicator.type}`} onClick={onDetails} aria-label={`${indicator.label}. View details`} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></button> : null}
       <SpaceBetween size="s">
         <div className="metric-card-heading"><Box variant="awsui-key-label">{title}</Box>{info}</div>
-        <Box variant="awsui-value-large" color={attention ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
+        <Box variant="awsui-value-large" color={attention || errorValue ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
         <Box color="text-body-secondary">{description}</Box>
         {onDetails ? <Button variant="inline-link" onClick={onDetails}>View details</Button> : null}
       </SpaceBetween>

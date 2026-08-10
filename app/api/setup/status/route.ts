@@ -3,7 +3,7 @@ import { githubRequest, githubTokenStatus } from "@/lib/github";
 import { gitlabAbsoluteUrl, gitlabRequest, gitlabTokenStatus, type GitlabViewer } from "@/lib/gitlab";
 import { readLocalSettings } from "@/lib/local-settings";
 import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
-import { DEFAULT_WORKSPACE_PRESETS } from "@/lib/repository-constants";
+import { workspacePresetsWithConfig } from "@/lib/repository-constants";
 import { configuredRepositorySource } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
@@ -16,11 +16,12 @@ export async function GET() {
     ? await githubRequest<GitHubViewer>("/user", 5 * 60_000).catch(() => null)
     : null;
   const repositories = configuredRepositorySource();
+  const settings = readLocalSettings(viewer?.login);
   const gitlabToken = gitlabTokenStatus();
-  const gitlabViewer = gitlabToken.configured
+  const gitlabEnabled = settings?.gitlabEnabled !== false;
+  const gitlabViewer = gitlabEnabled && gitlabToken.configured
     ? await gitlabRequest<GitlabViewer>("/user", 5 * 60_000).catch(() => null)
     : null;
-  const settings = readLocalSettings(viewer?.login);
   const configured = token.configured && Boolean(viewer) && repositories.setupCompleted;
 
   return NextResponse.json({
@@ -31,10 +32,11 @@ export async function GET() {
     repositories: repositories.repositories,
     viewer: viewer ? { login: viewer.login, name: viewer.name, avatar: viewer.avatar_url, url: viewer.html_url } : null,
     renovateReviewDay: settings?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY,
-    workspacePresets: settings?.workspacePresets ?? DEFAULT_WORKSPACE_PRESETS,
+    workspacePresets: workspacePresetsWithConfig(settings?.workspacePresets),
     gitlab: {
-      hasToken: gitlabToken.configured && Boolean(gitlabViewer),
-      tokenSource: gitlabToken.source,
+      hasToken: gitlabEnabled && gitlabToken.configured && Boolean(gitlabViewer),
+      tokenSource: gitlabEnabled ? gitlabToken.source : null,
+      environmentAvailable: gitlabToken.source === "environment",
       viewer: gitlabViewer ? { username: gitlabViewer.username, name: gitlabViewer.name, avatar: gitlabAbsoluteUrl(gitlabViewer.avatar_url), url: gitlabViewer.web_url } : null,
       projects: settings?.gitlabProjects ?? [],
       defaultProject: settings?.gitlabDefaultProject ?? null,

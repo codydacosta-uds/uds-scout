@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { gitlabAbsoluteUrl, gitlabApiError, setSessionGitlabToken, validateGitlabToken } from "@/lib/gitlab";
+import { currentGitHubViewer, githubRequest } from "@/lib/github";
+import { gitlabAbsoluteUrl, gitlabApiError, gitlabRequest, gitlabTokenStatus, setSessionGitlabToken, validateGitlabToken, type GitlabViewer } from "@/lib/gitlab";
+import { readLocalSettings, writeLocalSettings } from "@/lib/local-settings";
 
 export const runtime = "nodejs";
+
+type GitHubViewer = { login: string };
 
 function sameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
@@ -19,15 +23,33 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json() as { token?: unknown };
+    const body = await request.json() as { token?: unknown; useEnvironment?: unknown };
+    const useEnvironment = body.useEnvironment === true;
     const token = typeof body.token === "string" ? body.token.trim() : "";
-    if (!token || token.length > 500) {
-      return NextResponse.json({ error: "Enter a valid Gitlab token." }, { status: 400 });
+    let viewer: GitlabViewer;
+    let tokenSource: "environment" | "session";
+
+    if (useEnvironment) {
+      if (gitlabTokenStatus().source !== "environment") {
+        return NextResponse.json({ error: "GITLAB_TOKEN is not available in the server environment." }, { status: 409 });
+      }
+      viewer = await gitlabRequest<GitlabViewer>("/user", 0, true);
+      tokenSource = "environment";
+    } else {
+      if (!token || token.length > 500) {
+        return NextResponse.json({ error: "Enter a valid Gitlab token." }, { status: 400 });
+      }
+      viewer = await validateGitlabToken(token);
+      setSessionGitlabToken(token, viewer.username);
+      tokenSource = "session";
     }
 
-    const viewer = await validateGitlabToken(token);
-    setSessionGitlabToken(token, viewer.username);
+    const githubViewer = currentGitHubViewer() ?? (await githubRequest<GitHubViewer>("/user", 0).catch(() => null))?.login ?? null;
+    const settings = readLocalSettings(githubViewer);
+    if (settings) writeLocalSettings({ ...settings, gitlabEnabled: true }, githubViewer);
+
     return NextResponse.json({
+      tokenSource,
       viewer: {
         username: viewer.username,
         name: viewer.name,

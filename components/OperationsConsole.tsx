@@ -31,12 +31,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SONIC_REPOSITORY } from "@/lib/repository-constants";
 import { GitLabTicketComposer } from "./GitLabTicketComposer";
+import { PrimaryActionButton } from "./action-ui";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
 import { OperationsDrawer } from "./OperationsDrawer";
 import { OverviewPage } from "./OverviewPage";
+import { filterRenovateUpdatesByCheck, isRenovateCheckFilter, PullRequestCheckStatus, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
 import type { InfrastructureExplorerData } from "./infrastructure-types";
 import type { ConsoleView, DrawerSelection } from "./operations-types";
-import { EmptyState, MetricCard, newestPulls, pipelineFailed, pullWorkflowStatus, PullAuthor, PullPeople, relativeTime, repositoryHealth, runStatus, udsCommonStatus, UdsCoreVersion } from "./operations-ui";
+import { EmptyState, MetricCard, newestPulls, pipelineFailed, pullWorkflowStatus, PullAuthor, PullPeople, relativeTime, repositoryHealth, runStatus, udsCommonStatusAction, UdsCoreVersion } from "./operations-ui";
 import type { GitLabWorkItems, OrganizationRepository, Overview, PullRequest, Repository, RepositoryCatalog, RepositoryContributorCounts, RepositoryWorkspace } from "./types";
 
 type Props = {
@@ -825,49 +827,75 @@ function UdsPackagesCatalogPage({ overview, catalog, contributorCounts, loading,
 }
 
 function PullRequestsPage({ overview, openDrawer }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void }) {
-  const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "pull-requests:filter"), "", isString);
+  const preferencePrefix = sessionPreferenceKey(overview.viewer.login, "pull-requests");
+  const [filter, setFilter] = useSessionPreference(`${preferencePrefix}:filter`, "", isString);
+  const [repositoryFilter, setRepositoryFilter] = useSessionPreference(`${preferencePrefix}:repository`, "all", isString);
+  const [authorFilter, setAuthorFilter] = useSessionPreference(`${preferencePrefix}:author`, "all", isString);
+  const repositoryOptions = [
+    { label: `All repositories (${overview.pullRequests.length})`, value: "all" },
+    ...Array.from(new Set(overview.pullRequests.map((pull) => pull.repository))).sort().map((repository) => ({ label: `${repository} (${overview.pullRequests.filter((pull) => pull.repository === repository).length})`, value: repository })),
+  ];
+  const authorOptions = [
+    { label: `All authors (${overview.pullRequests.length})`, value: "all" },
+    ...Array.from(new Set(overview.pullRequests.map((pull) => pull.author))).sort((first, second) => first.localeCompare(second)).map((author) => ({ label: `${author} (${overview.pullRequests.filter((pull) => pull.author === author).length})`, value: author })),
+  ];
+  const selectedRepository = repositoryOptions.find((option) => option.value === repositoryFilter) ?? repositoryOptions[0];
+  const selectedAuthor = authorOptions.find((option) => option.value === authorFilter) ?? authorOptions[0];
+  const activeRepository = selectedRepository.value;
+  const activeAuthor = selectedAuthor.value;
   const items = overview.pullRequests.filter((pull) => {
     const query = filter.toLowerCase();
-    return !query || pull.title.toLowerCase().includes(query) || pull.repository.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query));
+    return (activeRepository === "all" || pull.repository === activeRepository)
+      && (activeAuthor === "all" || pull.author === activeAuthor)
+      && (!query || pull.title.toLowerCase().includes(query) || pull.repository.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query)));
   });
   return (
     <ContentLayout header={<Header variant="h1" description="Open changes awaiting review across tracked repositories." counter={`(${overview.pullRequests.length})`}>Open pull requests</Header>}>
       <Table
         variant="container"
+        stickyHeader
+        stripedRows
         trackBy="id"
         items={items}
-        filter={<TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find pull requests" countText={`${items.length} matches`} />}
-        header={<Header variant="h2" description="Open a pull request title for workflow details and next actions.">Pull requests</Header>}
+        filter={<div className="table-filters pull-request-table-filters"><TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find pull requests" countText={`${items.length} matches`} /><Select selectedOption={selectedRepository} onChange={({ detail }) => setRepositoryFilter(detail.selectedOption.value ?? "all")} options={repositoryOptions} /><Select selectedOption={selectedAuthor} onChange={({ detail }) => setAuthorFilter(detail.selectedOption.value ?? "all")} options={authorOptions} /></div>}
+        header={<Header variant="h2" counter={`(${items.length})`} description="Review ownership, pipeline health, status, and recent activity.">Pull requests</Header>}
         columnDefinitions={[
           { id: "title", header: "Pull request", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number}</Box></SpaceBetween> },
           { id: "repository", header: "Repository", cell: (item) => <Link href={`/repositories/${item.repository}`} onFollow={(event) => { const repository = overview.repositories.find((candidate) => candidate.fullName === item.repository); if (repository) { event.preventDefault(); openDrawer({ type: "repository", repository }); } }}>{item.repository}</Link> },
           { id: "author", header: "Author", cell: (item) => <PullAuthor pull={item} /> },
-          { id: "assignment", header: "Assignment", cell: (item) => <SpaceBetween size="xxs"><PullPeople people={item.assignees} />{item.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase()) ? <StatusIndicator type="info">Your review requested</StatusIndicator> : null}</SpaceBetween> },
-          { id: "branch", header: "Source branch", cell: (item) => <Box variant="code">{item.head}</Box> },
+          { id: "assignment", header: "Assignment / review", cell: (item) => <SpaceBetween size="xxs"><PullPeople people={item.assignees} />{item.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase()) ? <StatusIndicator type="info">Your review requested</StatusIndicator> : null}</SpaceBetween> },
+          { id: "pipeline", header: "Pipeline / checks", cell: (item) => <PullRequestCheckStatus pull={item} onOpen={() => openDrawer({ type: "pull-request", pull: item, repository: item.repository, focus: "failed-checks" })} /> },
+          { id: "status", header: "PR status", cell: pullWorkflowStatus },
           { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, overview.generatedAt) },
-          { id: "status", header: "Workflow state", cell: pullWorkflowStatus },
-          { id: "why", header: "Why it is shown", cell: (item) => item.workflow.reason },
         ]}
-        empty={<EmptyState title="No open pull requests" detail="There are no changes waiting for review." />}
+        empty={<EmptyState title="No matching pull requests" detail="Adjust the search, repository, or author filters." />}
       />
     </ContentLayout>
   );
 }
 
 function RenovatePage({ overview, openDrawer }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void }) {
-  const queryRepository = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("repository") ?? "all" : "all";
-  const [repository, setRepository] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:repository"), queryRepository, isString, queryRepository !== "all");
-  const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:filter"), "", isString);
-  const options = [{ label: `All repositories (${overview.renovate.total})`, value: "all" }, ...overview.repositories.map((item) => ({ label: `${item.fullName} (${item.renovatePulls})`, value: item.fullName }))];
-  const selectedOption = options.find((option) => option.value === repository) ?? options[0];
-  const activeRepository = selectedOption.value;
-  const items = newestPulls(overview.renovate.pulls.filter((pull) => {
+  const queryParameters = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const queryRepository = queryParameters?.get("repository") ?? "all";
+  const requestedView = queryParameters?.get("view");
+  const requestedCheckFilter: RenovateCheckFilter = requestedView === "all" ? "all" : requestedView === "major" ? "major" : "priority";
+  const useRequestedView = requestedView === "all" || requestedView === "major";
+  const [repository, setRepository] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:repository"), queryRepository, isString, useRequestedView || queryRepository !== "all");
+  const [filter, setFilter] = useSessionPreference(sessionPreferenceKey(overview.viewer.login, "renovate:filter"), "", isString, useRequestedView);
+  const [checkFilter, setCheckFilter] = useSessionPreference<RenovateCheckFilter>(sessionPreferenceKey(overview.viewer.login, "renovate:pipeline:v2"), requestedCheckFilter, isRenovateCheckFilter, useRequestedView);
+  const repositoryOptions = [{ label: `All repositories (${overview.renovate.total})`, value: "all" }, ...overview.repositories.map((item) => ({ label: `${item.fullName} (${item.renovatePulls})`, value: item.fullName }))];
+  const selectedRepository = repositoryOptions.find((option) => option.value === repository) ?? repositoryOptions[0];
+  const activeRepository = selectedRepository.value;
+  const matchingUpdates = sortRenovateUpdates(overview.renovate.pulls.filter((pull) => {
     const query = filter.toLowerCase();
     return (activeRepository === "all" || pull.repository === activeRepository) && (!query || pull.title.toLowerCase().includes(query) || pull.head.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query)));
   }));
+  const pipelineOptions = renovateCheckFilterOptions(matchingUpdates);
+  const selectedPipeline = pipelineOptions.find((option) => option.value === checkFilter) ?? pipelineOptions[0];
+  const items = filterRenovateUpdatesByCheck(matchingUpdates, checkFilter);
   return (
     <ContentLayout
-      header={<Header variant="h1" description="Open dependency updates created by Renovate from a renovate/* source branch." counter={`(${overview.renovate.total})`}>Renovate updates</Header>}
+      header={<Header variant="h1" description="Open dependency updates created by Renovate. Major version updates appear first, followed by pipeline state and age." counter={`(${overview.renovate.total})`}>Renovate updates</Header>}
     >
       <SpaceBetween size="l">
         {overview.renovate.unassignedTotal ? <Flashbar items={[{
@@ -875,21 +903,12 @@ function RenovatePage({ overview, openDrawer }: { overview: Overview; openDrawer
           header: `${overview.renovate.unassignedTotal} automated ${overview.renovate.unassignedTotal === 1 ? "update requires" : "updates require"} manual attention`,
           content: `${overview.renovate.total} open ${overview.renovate.total === 1 ? "update is" : "updates are"} shown below. Only observable blockers, direct assignment or review requests, and configured priority labels elevate an update on the overview.`,
         }]} /> : null}
-        <Table
-          variant="container"
-          trackBy="id"
+        <RenovateUpdatesTable
+          referenceTime={overview.generatedAt}
+          openDrawer={openDrawer}
           items={items}
-          filter={<div className="table-filters"><TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find dependency updates" countText={`${items.length} matches`} /><Select selectedOption={selectedOption} onChange={({ detail }) => setRepository(detail.selectedOption.value ?? "all")} options={options} /></div>}
-          header={<Header variant="h2" description="Newest opened first. Open an update title for workflow details.">Dependency update inbox</Header>}
-          columnDefinitions={[
-            { id: "update", header: "Update", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }} fontSize="body-m">{item.title}</Link><Box color="text-body-secondary">PR #{item.number}</Box></SpaceBetween> },
-            { id: "repository", header: "Repository", cell: (item) => <Link href={`/repositories/${item.repository}`} onFollow={(event) => { const repository = overview.repositories.find((candidate) => candidate.fullName === item.repository); if (repository) { event.preventDefault(); openDrawer({ type: "repository", repository }); } }}>{item.repository}</Link> },
-            { id: "author", header: "Author", cell: (item) => <PullAuthor pull={item} /> },
-            { id: "assignee", header: "Assigned to", cell: (item) => <PullPeople people={item.assignees} /> },
-            { id: "branch", header: "Source branch", cell: (item) => <Box variant="code">{item.head}</Box> },
-            { id: "age", header: "Age", cell: (item) => relativeTime(item.createdAt, overview.generatedAt) },
-          ]}
-          empty={<EmptyState title="No Renovate updates" detail={activeRepository === "all" ? "All tracked repositories are current." : "This repository has no open Renovate pull requests."} />}
+          filter={<div className="table-filters renovate-table-filters"><TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find dependency updates" countText={`${items.length} matches`} /><Select selectedOption={selectedRepository} onChange={({ detail }) => setRepository(detail.selectedOption.value ?? "all")} options={repositoryOptions} /><Select selectedOption={selectedPipeline} onChange={({ detail }) => setCheckFilter(detail.selectedOption.value as RenovateCheckFilter)} options={pipelineOptions} /></div>}
+          emptyDetail={checkFilter === "priority" ? "No failed or major-version updates match the current repository and search filters." : checkFilter === "major" ? "No major version updates match the current repository and search filters." : checkFilter !== "all" ? "No updates match this pipeline state." : activeRepository === "all" ? "Tracked dependencies are current. Nothing needs review." : "This repository has no open Renovate pull requests."}
         />
       </SpaceBetween>
     </ContentLayout>
@@ -990,7 +1009,7 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, loadi
             {
               label: "Overview",
               id: "overview",
-              content: <SpaceBetween size="l"><Container header={<Header variant="h2">Repository status</Header>}><KeyValuePairs columns={3} items={[{ label: "Operational status", value: repositoryHealth(repository) }, { label: "Default branch", value: repository.defaultBranch }, { label: "Visibility", value: repository.visibility }, { label: "Primary language", value: repository.language ?? "Not detected" }, { label: "Last repository update", value: relativeTime(repository.updatedAt, overview.generatedAt) }, { label: "UDS Common", value: udsCommonStatus(repository.udsCommon) }, { label: "UDS Core version", value: repository.fullName === overview.udsCore.repository ? <UdsCoreVersion udsCore={overview.udsCore} /> : "Managed outside this repository" }]} /></Container>{relatedResources}</SpaceBetween>,
+              content: <SpaceBetween size="l"><Container header={<Header variant="h2">Repository status</Header>}><KeyValuePairs columns={3} items={[{ label: "Operational status", value: repositoryHealth(repository) }, { label: "Default branch", value: repository.defaultBranch }, { label: "Visibility", value: repository.visibility }, { label: "Primary language", value: repository.language ?? "Not detected" }, { label: "Last repository update", value: relativeTime(repository.updatedAt, overview.generatedAt) }, { label: "UDS Common", value: udsCommonStatusAction(repository.udsCommon, () => openDrawer({ type: "uds-common", repository: repository.fullName })) }, { label: "UDS Core version", value: repository.fullName === overview.udsCore.repository ? <UdsCoreVersion udsCore={overview.udsCore} /> : "Managed outside this repository" }]} /></Container>{relatedResources}</SpaceBetween>,
             },
             { label: "Pull requests", id: "pull-requests", content: <RepositoryPullRequestTable items={workspace.pulls.open} title="Open pull requests" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} /> },
             { label: "Renovate updates", id: "renovate", content: <RepositoryPullRequestTable items={renovatePulls} title="Renovate updates" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} /> },
@@ -1007,7 +1026,7 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, loadi
             {
               label: "Infrastructure",
               id: "infrastructure",
-              content: <SpaceBetween size="l"><Container header={<Header variant="h2" description="Repository configuration relevant to operations.">Infrastructure</Header>}><KeyValuePairs columns={3} items={[{ label: "Default branch", value: repository.defaultBranch }, { label: "Repository type", value: repository.fork ? "Fork" : "Source repository" }, { label: "Archived", value: repository.archived ? "Yes" : "No" }, { label: "Primary language", value: repository.language ?? "Not detected" }, { label: "Open work items", value: repository.openItems }, { label: "GitHub repository", value: <Link href={repository.url} external>{repository.fullName}</Link> }]} /></Container>{repository.fullName === SONIC_REPOSITORY ? <Container header={<Header variant="h2">Terraform knowledge base</Header>}><SpaceBetween size="m"><Box color="text-body-secondary">Explore the SWF infrastructure inventory, architecture, dependencies, reusable patterns, environments, and configuration inputs.</Box><Button variant="primary" onClick={() => navigate("/infrastructure")}>Open Infrastructure Explorer</Button></SpaceBetween></Container> : <Container><Box color="text-body-secondary">No Terraform root has been configured for analysis in this repository.</Box></Container>}</SpaceBetween>,
+              content: <SpaceBetween size="l"><Container header={<Header variant="h2" description="Repository configuration relevant to operations.">Infrastructure</Header>}><KeyValuePairs columns={3} items={[{ label: "Default branch", value: repository.defaultBranch }, { label: "Repository type", value: repository.fork ? "Fork" : "Source repository" }, { label: "Archived", value: repository.archived ? "Yes" : "No" }, { label: "Primary language", value: repository.language ?? "Not detected" }, { label: "Open work items", value: repository.openItems }, { label: "GitHub repository", value: <Link href={repository.url} external>{repository.fullName}</Link> }]} /></Container>{repository.fullName === SONIC_REPOSITORY ? <Container header={<Header variant="h2">Terraform knowledge base</Header>}><SpaceBetween size="m"><Box color="text-body-secondary">Explore the SWF infrastructure inventory, architecture, dependencies, reusable patterns, environments, and configuration inputs.</Box><PrimaryActionButton onClick={() => navigate("/infrastructure")}>Open Infrastructure Explorer</PrimaryActionButton></SpaceBetween></Container> : <Container><Box color="text-body-secondary">No Terraform root has been configured for analysis in this repository.</Box></Container>}</SpaceBetween>,
             },
           ]}
         />

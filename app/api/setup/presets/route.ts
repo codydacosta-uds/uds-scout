@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentGitHubViewer } from "@/lib/github";
 import { readLocalSettings, writeLocalSettings } from "@/lib/local-settings";
-import type { WorkspacePreset } from "@/lib/repository-constants";
+import { CONFIGURED_WORKSPACE_PRESETS, workspacePresetsWithConfig, type WorkspacePreset } from "@/lib/repository-constants";
 
 export const runtime = "nodejs";
 
@@ -34,7 +34,7 @@ function validatePresets(value: unknown): WorkspacePreset[] | null {
     if (!repositories.length || repositories.length > MAX_REPOSITORIES_PER_PRESET || repositories.some((repository) => !/^[^/\s]+\/[^/\s]+$/.test(repository))) return null;
     ids.add(id.toLowerCase());
     labels.add(label.toLowerCase());
-    presets.push({ id, label, repositories });
+    presets.push({ id, label, repositories, source: "user" });
   }
   return presets;
 }
@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
   if (!presets) {
     return NextResponse.json({ error: `Choose up to ${MAX_PRESETS} groups with a name and 1–${MAX_REPOSITORIES_PER_PRESET} repositories each.` }, { status: 400 });
   }
+  const configuredIds = new Set(CONFIGURED_WORKSPACE_PRESETS.map((preset) => preset.id.toLowerCase()));
+  const configuredLabels = new Set(CONFIGURED_WORKSPACE_PRESETS.map((preset) => preset.label.toLowerCase()));
+  if (presets.some((preset) => configuredIds.has(preset.id.toLowerCase()) || configuredLabels.has(preset.label.toLowerCase()))) {
+    return NextResponse.json({ error: "Repository-configured quick select groups cannot be replaced from workspace settings." }, { status: 400 });
+  }
 
   writeLocalSettings({ ...settings, workspacePresets: presets }, viewer);
-  return NextResponse.json({ presets });
+  return NextResponse.json({ presets: workspacePresetsWithConfig(presets) });
 }

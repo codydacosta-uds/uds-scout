@@ -45,15 +45,11 @@ export async function POST(request: NextRequest) {
   }
 
   const status = gitlabTokenStatus();
-  if (status.source === "environment") {
-    return NextResponse.json({ error: "Gitlab is configured by an environment variable. Remove it and restart Scout to disconnect." }, { status: 409 });
-  }
-
   const viewer = await githubViewer();
   const settings = readLocalSettings(viewer);
   if (settings) {
-    writeLocalSettings({ ...settings, gitlabProjects: [], gitlabDefaultProject: null }, viewer);
+    writeLocalSettings({ ...settings, gitlabEnabled: false, gitlabProjects: [], gitlabDefaultProject: null }, viewer);
   }
   clearSessionGitlabToken();
-  return NextResponse.json({ disconnected: "gitlab" });
+  return NextResponse.json({ disconnected: "gitlab", environmentAvailable: status.source === "environment" });
 }

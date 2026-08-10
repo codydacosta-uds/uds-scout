@@ -1,0 +1,24 @@
+{
+  "SONIC Maintainers": [
+    "nswccd-devsecops/sonic-swf-iac",
+    "uds-packages/artifactory",
+    "uds-packages/jira",
+    "uds-packages/xray",
+    "uds-packages/confluence",
+    "uds-packages/jenkins"
+  ],
+  "UDS Foundry Maintainers": [
+    "uds-packages/cert-manager",
+    "uds-packages/gitlab",
+    "uds-packages/gitlab-runner",
+    "uds-packages/mattermost",
+    "uds-packages/metallb",
+    "uds-packages/minio-operator",
+    "defenseunicorns/uds-package-postgres-operator",
+    "uds-packages/renovate",
+    "uds-packages/sonarqube",
+    "uds-packages/tak-server",
+    "uds-packages/valkey",
+    "uds-packages/vault"
+  ]
+}

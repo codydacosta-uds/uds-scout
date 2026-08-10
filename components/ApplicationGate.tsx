@@ -26,6 +26,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { WorkspacePreset } from "@/lib/repository-constants";
 import { RENOVATE_REVIEW_DAYS, type RenovateReviewDay } from "@/lib/renovate-review";
+import { ActionSuccessFlashbar, PrimaryActionButton, SaveButton, type ActionConfirmation } from "./action-ui";
+import { InfoPopover } from "./info-ui";
 import type { SetupGitlabProject, SetupGitlabProjectCatalog, SetupGitlabViewer, SetupRepository, SetupRepositoryCatalog, SetupStatus, SetupViewer } from "./setup-types";
 
 let cachedSetupStatus: SetupStatus | null = null;
@@ -34,14 +36,6 @@ const renovateReviewScheduleOptions = [
   ...RENOVATE_REVIEW_DAYS.slice(1),
   RENOVATE_REVIEW_DAYS[0],
 ].map((day) => ({ label: `${day.charAt(0).toUpperCase()}${day.slice(1)}`, value: day as RenovateReviewDay })).concat({ label: "Do not show", value: "hidden" });
-
-const setupContinueStyle = {
-  root: {
-    background: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
-    borderColor: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
-    color: { default: "#0b0c0e", hover: "#0b0c0e", active: "#0b0c0e" },
-  },
-} as const;
 
 function SetupLoading() {
   return <div className="setup-status-pending" role="status" aria-label="Checking Scout workspace" aria-busy="true" />;
@@ -64,13 +58,14 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [token, setToken] = useState("");
   const [gitlabToken, setGitlabToken] = useState("");
   const [gitlabTokenReady, setGitlabTokenReady] = useState(status.gitlab.hasToken);
+  const [gitlabTokenSource, setGitlabTokenSource] = useState(status.gitlab.tokenSource);
   const [connectedGitlabViewer, setConnectedGitlabViewer] = useState<SetupGitlabViewer | null>(status.gitlab.viewer);
   const [gitlabProjects, setGitlabProjects] = useState<SetupGitlabProject[]>([]);
   const [selectedGitlabProjects, setSelectedGitlabProjects] = useState<Set<string>>(() => new Set(status.gitlab.projects.map((project) => project.toLowerCase())));
   const [gitlabDefaultProject, setGitlabDefaultProject] = useState(status.gitlab.defaultProject);
   const [renovateReviewDay, setRenovateReviewDay] = useState<RenovateReviewDay>(status.renovateReviewDay);
   const [renovateReviewSaving, setRenovateReviewSaving] = useState(false);
-  const [renovateReviewConfirmation, setRenovateReviewConfirmation] = useState<string | null>(null);
+  const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [gitlabProjectsLoading, setGitlabProjectsLoading] = useState(status.gitlab.hasToken);
   const [gitlabProjectsLoaded, setGitlabProjectsLoaded] = useState(false);
   const [gitlabConnecting, setGitlabConnecting] = useState(false);
@@ -79,7 +74,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [repositoryUpdateStatus, setRepositoryUpdateStatus] = useState<"saving" | "rebuilding" | "complete" | "failed" | null>(null);
+  const [repositoryUpdateStatus, setRepositoryUpdateStatus] = useState<"rebuilding" | "failed" | null>(null);
   const [resetting, setResetting] = useState(false);
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
   const [rerunSetupConfirmVisible, setRerunSetupConfirmVisible] = useState(false);
@@ -172,6 +167,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
     if (!token.trim()) return;
     setLoading(true);
     setError(null);
+    setActionConfirmation(null);
     try {
       const response = await fetch("/api/setup/connect", {
         method: "POST",
@@ -187,6 +183,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
       setRepositoriesLoaded(false);
       setSelectedNames(new Set());
       setQuickSelectUndo(null);
+      setActionConfirmation({ header: "GitHub connection updated", content: `Connected as @${data.viewer.login}.` });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "GitHub could not be connected.");
     } finally {
@@ -217,6 +214,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
     if (!disconnectTarget) return;
     setDisconnecting(true);
     setError(null);
+    setActionConfirmation(null);
     try {
       const provider = disconnectTarget;
       const response = await fetch("/api/setup/disconnect", {
@@ -235,12 +233,17 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         return;
       }
       setGitlabTokenReady(false);
+      setGitlabTokenSource(null);
       setConnectedGitlabViewer(null);
       setGitlabToken("");
       setGitlabProjects([]);
       setGitlabProjectsLoaded(false);
       setSelectedGitlabProjects(new Set());
       setGitlabDefaultProject(null);
+      const nextStatus = { ...status, gitlab: { ...status.gitlab, hasToken: false, tokenSource: null, viewer: null, projects: [], defaultProject: null } };
+      cachedSetupStatus = nextStatus;
+      onComplete(nextStatus);
+      setActionConfirmation({ header: "Gitlab disconnected", content: "Gitlab features and saved project selections were removed from this workspace." });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The account could not be disconnected.");
       setDisconnectTarget(null);
@@ -250,22 +253,28 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
     }
   };
 
-  const connectGitlab = async () => {
-    if (!gitlabToken.trim()) return;
+  const connectGitlab = async (useEnvironment = false) => {
+    if (!useEnvironment && !gitlabToken.trim()) return;
     setGitlabConnecting(true);
     setError(null);
+    setActionConfirmation(null);
     try {
       const response = await fetch("/api/setup/gitlab/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: gitlabToken }),
+        body: JSON.stringify(useEnvironment ? { useEnvironment: true } : { token: gitlabToken }),
       });
-      const data = await response.json() as { viewer?: SetupGitlabViewer; error?: string };
+      const data = await response.json() as { viewer?: SetupGitlabViewer; tokenSource?: "environment" | "session"; error?: string };
       if (!response.ok || !data.viewer) throw new Error(data.error ?? "Gitlab could not be connected.");
       setGitlabToken("");
       setConnectedGitlabViewer(data.viewer);
       setGitlabTokenReady(true);
+      setGitlabTokenSource(data.tokenSource ?? (useEnvironment ? "environment" : "session"));
       setGitlabProjectsLoaded(false);
+      const nextStatus = { ...status, gitlab: { ...status.gitlab, hasToken: true, tokenSource: data.tokenSource ?? (useEnvironment ? "environment" : "session"), viewer: data.viewer } };
+      cachedSetupStatus = nextStatus;
+      onComplete(nextStatus);
+      setActionConfirmation({ header: "Gitlab connection updated", content: `Connected as @${data.viewer.username}.` });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Gitlab could not be connected.");
     } finally {
@@ -276,13 +285,14 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const save = async () => {
     setLoading(true);
     setError(null);
+    setActionConfirmation(null);
     try {
       const selected = repositories
         .filter((repository) => selectedNames.has(repository.fullName.toLowerCase()))
         .map((repository) => repository.fullName);
       const savedRepositoryNames = new Set(status.repositories.map((repository) => repository.toLowerCase()));
       const repositoriesChanged = selectedNames.size !== savedRepositoryNames.size || [...selectedNames].some((repository) => !savedRepositoryNames.has(repository));
-      setRepositoryUpdateStatus(settingsMode && repositoriesChanged ? "saving" : null);
+      setRepositoryUpdateStatus(null);
       const gitlabSettings = !gitlabTokenReady
         ? { gitlabProjects: [], gitlabDefaultProject: null }
         : gitlabProjectsLoaded
@@ -294,7 +304,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
       const response = await fetch("/api/setup/repositories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repositories: selected, ...gitlabSettings }),
+        body: JSON.stringify({ repositories: selected, gitlabEnabled: gitlabTokenReady, ...gitlabSettings }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Managed repositories could not be saved.");
@@ -309,13 +319,21 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         workspacePresets: data.workspacePresets ?? status.workspacePresets,
         gitlab: {
           hasToken: gitlabTokenReady,
-          tokenSource: status.gitlab.tokenSource ?? (gitlabTokenReady ? "session" : null),
+          tokenSource: gitlabTokenSource,
+          environmentAvailable: status.gitlab.environmentAvailable,
           viewer: connectedGitlabViewer,
           projects: data.gitlabProjects ?? [],
           defaultProject: data.gitlabDefaultProject ?? null,
         },
       };
       cachedSetupStatus = nextStatus;
+      if (settingsMode) {
+        setActionConfirmation(settingsTab === "gitlab"
+          ? { header: "Gitlab project settings saved", content: "Your selected work-item projects and default ticket project were updated." }
+          : settingsTab === "github"
+            ? { header: "GitHub repository settings saved", content: repositoriesChanged ? "Your repository selection was saved. Scout is refreshing dashboard data now." : "Your managed repository selection is unchanged and saved." }
+            : { header: "Workspace settings saved", content: "Your workspace configuration was updated." });
+      }
       if (!settingsMode || repositoriesChanged) {
         try {
           window.sessionStorage.setItem("uds-scout:show-initial-load-warning", "true");
@@ -331,7 +349,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         try {
           const rebuildResponse = await fetch(`/api/github/overview?workspaceUpdate=${Date.now()}`);
           if (!rebuildResponse.ok) throw new Error("The dashboard refresh could not be completed.");
-          setRepositoryUpdateStatus("complete");
+          setRepositoryUpdateStatus(null);
         } catch {
           setRepositoryUpdateStatus("failed");
         }
@@ -347,7 +365,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const saveRenovateReviewSchedule = async () => {
     setRenovateReviewSaving(true);
     setError(null);
-    setRenovateReviewConfirmation(null);
+    setActionConfirmation(null);
     try {
       const response = await fetch("/api/setup/preferences", {
         method: "POST",
@@ -360,7 +378,10 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
       cachedSetupStatus = nextStatus;
       onComplete(nextStatus);
       const scheduleLabel = renovateReviewScheduleOptions.find((option) => option.value === data.renovateReviewDay)?.label ?? data.renovateReviewDay;
-      setRenovateReviewConfirmation(data.renovateReviewDay === "hidden" ? "The Renovate review table is now hidden." : `The Renovate review table will now appear on ${scheduleLabel} using your browser's local day.`);
+      setActionConfirmation({
+        header: "Renovate review schedule saved",
+        content: data.renovateReviewDay === "hidden" ? "The Renovate review table is now hidden." : `The Renovate review table will now appear on ${scheduleLabel} using your browser's local day.`,
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The Renovate review schedule could not be saved.");
     } finally {
@@ -435,19 +456,22 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const persistWorkspacePresets = async (nextPresets: WorkspacePreset[]) => {
     setPresetSaving(true);
     setError(null);
+    setActionConfirmation(null);
     try {
       const response = await fetch("/api/setup/presets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presets: nextPresets }),
+        body: JSON.stringify({ presets: nextPresets.filter((preset) => preset.source !== "config").map(({ id, label, repositories }) => ({ id, label, repositories })) }),
       });
       const data = await response.json() as { presets?: WorkspacePreset[]; error?: string };
       if (!response.ok || !data.presets) throw new Error(data.error ?? "Quick select groups could not be saved.");
       setWorkspacePresets(data.presets);
       setPresetEditor(null);
+      setPresetManagerVisible(false);
       const nextStatus = { ...status, workspacePresets: data.presets };
       cachedSetupStatus = nextStatus;
       onComplete(nextStatus);
+      setActionConfirmation({ header: "Quick select groups saved", content: "Your reusable repository groups were updated." });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Quick select groups could not be saved.");
     } finally {
@@ -457,7 +481,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
 
   const savePresetEditor = () => {
     if (!presetEditor) return;
-    const normalized = { ...presetEditor, label: presetEditor.label.trim(), repositories: [...new Set(presetEditor.repositories)] };
+    const normalized = { ...presetEditor, label: presetEditor.label.trim(), repositories: [...new Set(presetEditor.repositories)], source: "user" as const };
     const existingIndex = workspacePresets.findIndex((preset) => preset.id === normalized.id);
     const next = existingIndex >= 0 ? workspacePresets.map((preset, index) => index === existingIndex ? normalized : preset) : [...workspacePresets, normalized];
     void persistWorkspacePresets(next);
@@ -480,7 +504,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const selectedDefaultGitlabProject = defaultGitlabProjectOptions.find((option) => option.value?.toLowerCase() === gitlabDefaultProject?.toLowerCase()) ?? null;
 
   const githubConnection = (
-    <Container header={<Header variant="h2" description="Required">Connect GitHub</Header>}>
+    <Container header={<Header variant="h2" description="Required" info={<InfoPopover header="GitHub connection"><SpaceBetween size="s"><Box>GitHub is required to load the repositories you explicitly select.</Box><Box color="text-body-secondary">Browser-entered tokens stay in server memory for this app session. You can instead provide <Box variant="code" display="inline">GITHUB_TOKEN</Box> in the server environment.</Box><Link href="https://github.com/settings/personal-access-tokens" external>Open GitHub token settings</Link></SpaceBetween></InfoPopover>}>Connect GitHub</Header>}>
       {tokenReady ? (
         <SpaceBetween size="l">
           {connectedViewer ? (
@@ -495,34 +519,30 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
             </div>
           ) : <StatusIndicator type="success">GitHub token found</StatusIndicator>}
           {status.tokenSource !== "environment" ? (
-            <FormField label="Replace GitHub token" description="The replacement is validated by the server and remains in memory for this app session.">
+            <FormField label="Replace GitHub token">
               <Input value={token} type="password" autoComplete="off" placeholder="github_pat_…" onChange={({ detail }) => setToken(detail.value)} onKeyDown={({ detail }) => { if (detail.key === "Enter") void connect(); }} />
             </FormField>
-          ) : <Box color="text-body-secondary"><Box variant="code" display="inline">GITHUB_TOKEN</Box> was found in the server environment. Change the environment value and restart Scout to use another token.</Box>}
+          ) : null}
           {status.tokenSource !== "environment" ? (
             <SpaceBetween direction="horizontal" size="s">
-              <Button loading={loading} disabled={!token.trim()} onClick={connect}>Replace GitHub connection</Button>
+              <PrimaryActionButton loading={loading} disabled={!token.trim()} onClick={connect}>Replace GitHub connection</PrimaryActionButton>
               {settingsMode ? <Button onClick={() => { setDisconnectConfirmation(""); setDisconnectTarget("github"); }}>Disconnect GitHub</Button> : null}
             </SpaceBetween>
           ) : null}
         </SpaceBetween>
       ) : (
         <SpaceBetween size="l">
-          <Box color="text-body-secondary">Enter a GitHub personal access token with read access. The token remains in server memory for this session.</Box>
-          <FormField label="GitHub token" description={<>You can also set <Box variant="code" display="inline">GITHUB_TOKEN</Box> before starting Scout.</>}>
+          <FormField label="GitHub token">
             <Input value={token} type="password" autoComplete="off" placeholder="github_pat_…" onChange={({ detail }) => setToken(detail.value)} onKeyDown={({ detail }) => { if (detail.key === "Enter") void connect(); }} />
           </FormField>
-          <SpaceBetween direction="horizontal" size="s">
-            <Button variant="primary" style={setupContinueStyle} loading={loading} disabled={!token.trim()} onClick={connect}>Connect GitHub</Button>
-            <Button href="https://github.com/settings/personal-access-tokens" external>Open GitHub token settings</Button>
-          </SpaceBetween>
+          <PrimaryActionButton loading={loading} disabled={!token.trim()} onClick={connect}>Connect GitHub</PrimaryActionButton>
         </SpaceBetween>
       )}
     </Container>
   );
 
   const gitlabConnection = (
-    <Container header={<Header variant="h2" description="Optional">Connect Gitlab</Header>}>
+    <Container header={<Header variant="h2" description="Optional" info={<InfoPopover header="Gitlab connection"><SpaceBetween size="s"><Box>Gitlab adds selected work items and explicitly confirmed ticket creation. It is not required for GitHub operations.</Box><Box color="text-body-secondary">Browser-entered tokens stay in server memory for this app session. If <Box variant="code" display="inline">GITLAB_TOKEN</Box> is present, you can still choose to use Scout without Gitlab.</Box></SpaceBetween></InfoPopover>}>Connect Gitlab</Header>}>
       <SpaceBetween size="m">
         {gitlabTokenReady ? (
           connectedGitlabViewer ? (
@@ -538,24 +558,28 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
               <StatusIndicator type="success">Connected</StatusIndicator>
             </div>
           ) : <StatusIndicator type="success">Gitlab token found</StatusIndicator>
-        ) : <Box color="text-body-secondary">Connect a token to show selected Gitlab work items and enable ticket creation for validated projects.</Box>}
-        {status.gitlab.tokenSource !== "environment" ? (
-          <FormField label={gitlabTokenReady ? "Replace Gitlab token" : "Gitlab token"} description="The token is validated by the server and remains in memory for this app session.">
+        ) : null}
+        {gitlabTokenSource !== "environment" && !(status.gitlab.environmentAvailable && !gitlabTokenReady) ? (
+          <FormField label={gitlabTokenReady ? "Replace Gitlab token" : "Gitlab token"}>
             <Input value={gitlabToken} type="password" autoComplete="off" placeholder="glpat-…" onChange={({ detail }) => setGitlabToken(detail.value)} onKeyDown={({ detail }) => { if (detail.key === "Enter") void connectGitlab(); }} />
           </FormField>
-        ) : <Box color="text-body-secondary"><Box variant="code" display="inline">GITLAB_TOKEN</Box> was found in the server environment.</Box>}
-        {status.gitlab.tokenSource !== "environment" ? (
-          <SpaceBetween direction="horizontal" size="s">
-            <Button loading={gitlabConnecting} disabled={!gitlabToken.trim()} onClick={connectGitlab}>{gitlabTokenReady ? "Replace Gitlab connection" : "Connect Gitlab"}</Button>
-            {settingsMode && gitlabTokenReady ? <Button onClick={() => { setDisconnectConfirmation(""); setDisconnectTarget("gitlab"); }}>Disconnect Gitlab</Button> : null}
-          </SpaceBetween>
         ) : null}
+        {gitlabTokenSource === "environment" || status.gitlab.environmentAvailable && !gitlabTokenReady ? (
+          <SpaceBetween direction="horizontal" size="s">
+            {gitlabTokenReady ? <Button onClick={() => { setDisconnectConfirmation(""); setDisconnectTarget("gitlab"); }}>{settingsMode ? "Disconnect Gitlab" : "Continue without Gitlab"}</Button> : <PrimaryActionButton loading={gitlabConnecting} onClick={() => void connectGitlab(true)}>Use environment token</PrimaryActionButton>}
+          </SpaceBetween>
+        ) : (
+          <SpaceBetween direction="horizontal" size="s">
+            <PrimaryActionButton loading={gitlabConnecting} disabled={!gitlabToken.trim()} onClick={() => void connectGitlab()}>{gitlabTokenReady ? "Replace Gitlab connection" : "Connect Gitlab"}</PrimaryActionButton>
+            {gitlabTokenReady ? <Button onClick={() => { setDisconnectConfirmation(""); setDisconnectTarget("gitlab"); }}>{settingsMode ? "Disconnect Gitlab" : "Continue without Gitlab"}</Button> : null}
+          </SpaceBetween>
+        )}
       </SpaceBetween>
     </Container>
   );
 
   const gitlabProjectSettings = gitlabTokenReady ? (
-    <Container header={<Header variant="h2" description={step === "gitlab-projects" ? "Step 3 of 3 · Choose zero or more projects for assigned work items." : "Choose zero or more projects for assigned work items. Ticket batches can target one selected, validated project at a time."} actions={step === "gitlab-projects" ? <SpaceBetween direction="horizontal" size="s"><Button onClick={() => setStep("repositories")}>Back</Button><Button variant="primary" style={setupContinueStyle} loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save and continue</Button></SpaceBetween> : settingsMode ? <Button variant="primary" style={setupContinueStyle} loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save changes</Button> : undefined}>{step === "gitlab-projects" ? "Choose Gitlab projects" : "Gitlab projects"}</Header>}>
+    <Container header={<Header variant="h2" description={step === "gitlab-projects" ? "Step 3 of 3 · Choose zero or more projects for assigned work items." : "Choose zero or more projects for assigned work items. Ticket batches can target one selected, validated project at a time."} actions={step === "gitlab-projects" ? <SpaceBetween direction="horizontal" size="s"><Button onClick={() => setStep("repositories")}>Back</Button><SaveButton loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save and continue</SaveButton></SpaceBetween> : settingsMode ? <SaveButton loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save changes</SaveButton> : undefined}>{step === "gitlab-projects" ? "Choose Gitlab projects" : "Gitlab projects"}</Header>}>
       <SpaceBetween size="m">
         <FormField label="Projects shown on the overview" description="No selection hides My Gitlab work items from the overview.">
           <Multiselect
@@ -632,7 +656,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                 </SpaceBetween>
                 <SpaceBetween size="s">
                   <div className="setup-welcome-action">
-                    <Button variant="primary" style={setupContinueStyle} onClick={() => setStep("token")}>Set up UDS Scout</Button>
+                    <PrimaryActionButton onClick={() => setStep("token")}>Set up UDS Scout</PrimaryActionButton>
                   </div>
                   <Box color="text-body-secondary" fontSize="body-s">Connect your accounts and choose only the repositories that matter.</Box>
                 </SpaceBetween>
@@ -671,22 +695,18 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
           </SpaceBetween>
 
           {error ? <Flashbar items={[{ type: "error", header: "Setup could not continue", content: error, dismissible: true, onDismiss: () => setError(null) }]} /> : null}
+          {actionConfirmation ? <ActionSuccessFlashbar confirmation={actionConfirmation} onDismiss={() => setActionConfirmation(null)} /> : null}
           {repositoryUpdateStatus ? <Flashbar items={[{
-            type: repositoryUpdateStatus === "complete" ? "success" : repositoryUpdateStatus === "failed" ? "warning" : "info",
-            header: repositoryUpdateStatus === "saving" ? "Saving repository changes" : repositoryUpdateStatus === "rebuilding" ? "Rebuilding the Scout dashboard" : repositoryUpdateStatus === "complete" ? "Dashboard rebuild complete" : "Repository changes saved",
-            content: repositoryUpdateStatus === "saving"
-              ? "Scout is validating and saving your repository selection."
-              : repositoryUpdateStatus === "rebuilding"
-                ? "Your repository changes are saved. Scout is refreshing pull requests, pipelines, releases, and package health now."
-                : repositoryUpdateStatus === "complete"
-                  ? "The dashboard is ready with your updated repository selection."
-                  : "Scout could not prebuild the dashboard. It will retry when you return to the homepage.",
-            action: ["complete", "failed"].includes(repositoryUpdateStatus) ? <div className="flashbar-centered-action"><Button onClick={() => router.push("/")}>Open dashboard</Button></div> : undefined,
-            dismissible: ["complete", "failed"].includes(repositoryUpdateStatus),
+            type: repositoryUpdateStatus === "failed" ? "warning" : "info",
+            header: repositoryUpdateStatus === "rebuilding" ? "Refreshing the Scout dashboard" : "Dashboard refresh pending",
+            content: repositoryUpdateStatus === "rebuilding"
+              ? "Your repository changes are saved. Scout is refreshing pull requests, pipelines, releases, and package health now."
+              : "Scout could not prebuild the dashboard. It will retry when you return to the homepage.",
+            action: repositoryUpdateStatus === "failed" ? <div className="flashbar-centered-action"><Button onClick={() => router.push("/")}>Open dashboard</Button></div> : undefined,
+            dismissible: repositoryUpdateStatus === "failed",
             onDismiss: () => setRepositoryUpdateStatus(null),
           }]} /> : null}
           {repositoriesLoading ? <div className="setup-repository-loading-banner"><Flashbar items={[{ type: "info", header: "Fetching repository data", content: "Please wait while we load repositories available to your GitHub account." }]} /></div> : null}
-          {renovateReviewConfirmation ? <Flashbar items={[{ type: "success", header: "Renovate review schedule updated", content: renovateReviewConfirmation, dismissible: true, onDismiss: () => setRenovateReviewConfirmation(null) }]} /> : null}
           {quickSelectUndo ? <Flashbar items={[{ type: "success", header: `${quickSelectUndo.label} ${quickSelectUndo.action === "added" ? "selected" : "deselected"}`, content: `${quickSelectUndo.changed} ${quickSelectUndo.changed === 1 ? "repository was" : "repositories were"} ${quickSelectUndo.action}.`, action: <div className="flashbar-centered-action"><Button onClick={() => { setSelectedNames(new Set(quickSelectUndo.selection)); setQuickSelectUndo(null); }}>Undo</Button></div>, dismissible: true, onDismiss: () => setQuickSelectUndo(null) }]} /> : null}
 
           {step === "token" ? (
@@ -694,7 +714,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
             {githubConnection}
             {gitlabConnection}
             <div className="setup-step-actions">
-              <Button variant="primary" style={setupContinueStyle} disabled={!tokenReady} onClick={continueToRepositories}>Continue to GitHub repositories</Button>
+              <PrimaryActionButton disabled={!tokenReady} onClick={continueToRepositories}>Continue to GitHub repositories</PrimaryActionButton>
             </div>
             </SpaceBetween>
           ) : step === "gitlab-projects" ? (
@@ -723,7 +743,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                       <SpaceBetween size="xs"><Box variant="h3">Accounts</Box><Box color="text-body-secondary">Replace or disconnect server-only account tokens.</Box><div><Button onClick={() => setSettingsTab("connections")}>Manage connections</Button></div></SpaceBetween>
                     </SpaceBetween>
                   </Container>
-                  <Container header={<Header variant="h2" description="Choose one browser-local weekday, or hide the scheduled table." actions={<Button variant="primary" style={setupContinueStyle} loading={renovateReviewSaving} disabled={renovateReviewDay === status.renovateReviewDay} onClick={saveRenovateReviewSchedule}>Save schedule</Button>}>Renovate review</Header>}>
+                  <Container header={<Header variant="h2" description="Choose one browser-local weekday, or hide the scheduled table." actions={<SaveButton loading={renovateReviewSaving} disabled={renovateReviewDay === status.renovateReviewDay} onClick={saveRenovateReviewSchedule}>Save schedule</SaveButton>}>Renovate review</Header>}>
                     <FormField label="Show review table on">
                       <Select selectedOption={selectedRenovateReviewSchedule} options={renovateReviewScheduleOptions} onChange={({ detail }) => setRenovateReviewDay(detail.selectedOption.value as RenovateReviewDay)} />
                     </FormField>
@@ -746,7 +766,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                     variant="h2"
                     counter={selectionCounter}
                     description="GitHub repositories currently included in operational monitoring."
-                    actions={<SpaceBetween direction="horizontal" size="s">{quickSelect}<Button disabled={repositoriesLoading} onClick={() => setPresetManagerVisible(true)}>Manage groups</Button><Button onClick={() => router.push("/")}>Cancel</Button><Button variant="primary" style={setupContinueStyle} loading={loading} disabled={repositoriesLoading} onClick={save}>Save changes</Button></SpaceBetween>}
+                    actions={<SpaceBetween direction="horizontal" size="s">{quickSelect}<Button disabled={repositoriesLoading} onClick={() => setPresetManagerVisible(true)}>Manage groups</Button><Button onClick={() => router.push("/")}>Cancel</Button><SaveButton loading={loading} disabled={repositoriesLoading} onClick={save}>Save changes</SaveButton></SpaceBetween>}
                   >
                     Managed GitHub repositories
                   </Header>
@@ -808,7 +828,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                   variant="h2"
                   counter={selectionCounter}
                   description={repositoriesLocked ? `Step 2 of ${setupStepCount} · GitHub repository selection is controlled by GITHUB_REPOSITORIES.` : `Step 2 of ${setupStepCount} · Choose up to ${MAX_MANAGED_REPOSITORIES} GitHub repositories for pull requests, issues, pipelines, and repository health.`}
-                  actions={<SpaceBetween direction="horizontal" size="s">{quickSelect}<Button onClick={() => { setQuickSelectUndo(null); setStep("token"); }}>Back</Button><Button variant="primary" style={setupContinueStyle} loading={!gitlabTokenReady && loading} disabled={repositoriesLoading} onClick={gitlabTokenReady ? () => setStep("gitlab-projects") : save}>{gitlabTokenReady ? "Continue to Gitlab projects" : "Save and continue"}</Button></SpaceBetween>}
+                  actions={<SpaceBetween direction="horizontal" size="s">{quickSelect}<Button onClick={() => { setQuickSelectUndo(null); setStep("token"); }}>Back</Button><PrimaryActionButton loading={!gitlabTokenReady && loading} disabled={repositoriesLoading} onClick={gitlabTokenReady ? () => setStep("gitlab-projects") : save}>{gitlabTokenReady ? "Continue to Gitlab projects" : "Save and continue"}</PrimaryActionButton></SpaceBetween>}
                 >
                   Choose GitHub repositories
                 </Header>
@@ -831,7 +851,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         closeAriaLabel="Close quick select group manager"
         size="large"
         header={presetEditor ? workspacePresets.some((preset) => preset.id === presetEditor.id) ? "Edit quick select group" : "Add quick select group" : "Quick select groups"}
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs">{presetEditor ? <><Button disabled={presetSaving} onClick={() => setPresetEditor(null)}>Back</Button><Button variant="primary" style={setupContinueStyle} loading={presetSaving} disabled={!presetEditor.label.trim() || !presetEditor.repositories.length || duplicatePresetName} onClick={savePresetEditor}>Save group</Button></> : <><Button onClick={() => setPresetManagerVisible(false)}>Close</Button><Button variant="primary" style={setupContinueStyle} disabled={workspacePresets.length >= 20 || repositoriesLoading} onClick={() => setPresetEditor({ id: window.crypto.randomUUID(), label: "", repositories: [] })}>Add group</Button></>}</SpaceBetween></Box>}
+        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs">{presetEditor ? <><Button disabled={presetSaving} onClick={() => setPresetEditor(null)}>Back</Button><SaveButton loading={presetSaving} disabled={!presetEditor.label.trim() || !presetEditor.repositories.length || duplicatePresetName} onClick={savePresetEditor}>Save group</SaveButton></> : <><Button onClick={() => setPresetManagerVisible(false)}>Close</Button><PrimaryActionButton disabled={workspacePresets.filter((preset) => preset.source !== "config").length >= 20 || repositoriesLoading} onClick={() => setPresetEditor({ id: window.crypto.randomUUID(), label: "", repositories: [], source: "user" })}>Add group</PrimaryActionButton></>}</SpaceBetween></Box>}
       >
         {presetEditor ? (
           <SpaceBetween size="l">
@@ -851,14 +871,14 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
           </SpaceBetween>
         ) : (
           <SpaceBetween size="m">
-            <Header variant="h3" counter={`(${workspacePresets.length})`} description="Choose a group from Quick select to add its repositories; choose it again to remove them.">Saved groups</Header>
+            <Header variant="h3" counter={`(${workspacePresets.length})`} description="Choose a group from Quick select to add its repositories; choose it again to remove them.">Available groups</Header>
             {workspacePresets.length ? <div className="quick-select-group-list">{workspacePresets.map((preset) => (
               <div className="quick-select-group-row" key={preset.id}>
                 <div className="quick-select-group-copy">
-                  <Box variant="strong">{preset.label}</Box>
+                  <SpaceBetween direction="horizontal" size="xs"><Box variant="strong">{preset.label}</Box>{preset.source === "config" ? <Badge color="grey">Config</Badge> : null}</SpaceBetween>
                   <Box color="text-body-secondary">{preset.repositories.slice(0, 3).join(", ")}{preset.repositories.length > 3 ? ` · +${preset.repositories.length - 3} more` : ""}</Box>
                 </div>
-                <ButtonDropdown variant="icon" ariaLabel={`Actions for ${preset.label}`} loading={presetSaving} items={[{ id: "edit", text: "Edit" }, { id: "delete", text: "Delete" }]} onItemClick={({ detail }) => { if (detail.id === "edit") setPresetEditor({ ...preset, repositories: [...preset.repositories] }); else void persistWorkspacePresets(workspacePresets.filter((candidate) => candidate.id !== preset.id)); }} />
+                {preset.source === "config" ? null : <ButtonDropdown variant="icon" ariaLabel={`Actions for ${preset.label}`} loading={presetSaving} items={[{ id: "edit", text: "Edit" }, { id: "delete", text: "Delete" }]} onItemClick={({ detail }) => { if (detail.id === "edit") setPresetEditor({ ...preset, repositories: [...preset.repositories] }); else void persistWorkspacePresets(workspacePresets.filter((candidate) => candidate.id !== preset.id)); }} />}
               </div>
             ))}</div> : <Box textAlign="center" padding={{ vertical: "xl" }}><SpaceBetween size="xs"><Box variant="strong">No quick select groups</Box><Box color="text-body-secondary">Add a group to reuse a repository selection.</Box></SpaceBetween></Box>}
           </SpaceBetween>
@@ -869,7 +889,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         onDismiss={() => setRerunSetupConfirmVisible(false)}
         closeAriaLabel="Close run setup confirmation"
         header="Run setup again and replace repository selection?"
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setRerunSetupConfirmVisible(false)}>Cancel</Button><Button variant="primary" style={setupContinueStyle} onClick={() => { setRerunSetupConfirmVisible(false); router.push("/setup"); }}>Run setup again</Button></SpaceBetween></Box>}
+        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setRerunSetupConfirmVisible(false)}>Cancel</Button><PrimaryActionButton onClick={() => { setRerunSetupConfirmVisible(false); router.push("/setup"); }}>Run setup again</PrimaryActionButton></SpaceBetween></Box>}
       >
         Running setup again starts repository selection with no repositories selected. Your saved workspace remains unchanged until you finish and save, but completing setup will replace all currently selected repositories.
       </Modal>
@@ -878,7 +898,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         onDismiss={() => { if (!resetting) setResetConfirmVisible(false); }}
         closeAriaLabel="Close reset confirmation"
         header="Reset UDS Scout setup?"
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={resetting} onClick={() => setResetConfirmVisible(false)}>Cancel</Button><Button variant="primary" style={setupContinueStyle} loading={resetting} onClick={resetSetup}>Reset setup</Button></SpaceBetween></Box>}
+        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={resetting} onClick={() => setResetConfirmVisible(false)}>Cancel</Button><PrimaryActionButton loading={resetting} onClick={resetSetup}>Reset setup</PrimaryActionButton></SpaceBetween></Box>}
       >
         Saved repository and Gitlab project selections for this GitHub user will be removed. Quick select groups and the Renovate review schedule will be kept. Tokens entered during this app session will also be cleared. Environment tokens are not changed.
       </Modal>
@@ -886,8 +906,8 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         visible={disconnectTarget !== null}
         onDismiss={() => { if (!disconnecting) { setDisconnectTarget(null); setDisconnectConfirmation(""); } }}
         closeAriaLabel="Close disconnect confirmation"
-        header={disconnectTarget === "github" ? "Disconnect GitHub?" : "Disconnect Gitlab?"}
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={disconnecting} onClick={() => { setDisconnectTarget(null); setDisconnectConfirmation(""); }}>Cancel</Button><Button variant="primary" style={setupContinueStyle} loading={disconnecting} disabled={disconnectTarget === "github" && disconnectConfirmation.trim() !== "disconnect from uds scout"} onClick={disconnectAccount}>{disconnectTarget === "github" ? "Disconnect GitHub" : "Disconnect Gitlab"}</Button></SpaceBetween></Box>}
+        header={disconnectTarget === "github" ? "Disconnect GitHub?" : "Use Scout without Gitlab?"}
+        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={disconnecting} onClick={() => { setDisconnectTarget(null); setDisconnectConfirmation(""); }}>Cancel</Button><PrimaryActionButton loading={disconnecting} disabled={disconnectTarget === "github" && disconnectConfirmation.trim() !== "disconnect from uds scout"} onClick={disconnectAccount}>{disconnectTarget === "github" ? "Disconnect GitHub" : "Use without Gitlab"}</PrimaryActionButton></SpaceBetween></Box>}
       >
         {disconnectTarget === "github" ? (
           <SpaceBetween size="m">
@@ -896,7 +916,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
               <Input value={disconnectConfirmation} autoComplete="off" placeholder="disconnect from uds scout" onChange={({ detail }) => setDisconnectConfirmation(detail.value)} />
             </FormField>
           </SpaceBetween>
-        ) : "You will be disconnected from Gitlab. Saved Gitlab project selections will be cleared, but your GitHub workspace will remain connected."}
+        ) : <SpaceBetween size="s"><Box>Gitlab features and saved Gitlab project selections will be disabled, but your GitHub workspace will remain connected.</Box>{gitlabTokenSource === "environment" || status.gitlab.environmentAvailable ? <Box color="text-body-secondary">The environment token remains on the server, but Scout will ignore it for this workspace until you choose to reconnect.</Box> : null}</SpaceBetween>}
       </Modal>
     </>
   );

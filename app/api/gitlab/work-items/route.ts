@@ -70,6 +70,7 @@ function projectFromReference(reference: string) {
 export async function GET() {
   try {
     const settings = readLocalSettings(currentGitHubViewer());
+    if (settings?.gitlabEnabled === false) return NextResponse.json({ error: "Gitlab is disabled for this workspace." }, { status: 409 });
     const selectedProjects = new Set((settings?.gitlabProjects ?? []).map((project) => project.toLowerCase()));
     const [viewer, availableItems] = await Promise.all([
       gitlabRequest<RawGitLabUser>("/user", 5 * 60_000),

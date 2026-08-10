@@ -438,8 +438,48 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   gap: 4px;
 }
 
+.renovate-major-update {
+  padding-left: 10px;
+  border-left: 3px solid var(--d2d-color-warning);
+}
+
+.overview-scroll-target,
 .renovate-review-section {
   scroll-margin-top: 80px;
+}
+
+.first-run-welcome {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.first-run-welcome-logo {
+  display: block;
+  width: 92px;
+  height: auto;
+}
+
+.first-run-renovate-tip {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.first-run-renovate-logo {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent url("/renovate.svg") center / 42px 42px no-repeat;
+  cursor: pointer;
+}
+
+.first-run-renovate-logo:focus-visible {
+  outline: 2px solid #b8bec6;
+  outline-offset: 2px;
 }
 
 .renovate-review-filter {
@@ -463,6 +503,17 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
 .renovate-review-beacon:focus-visible {
   outline: 2px solid #b8bec6;
   outline-offset: 2px;
+}
+
+.renovate-review-beacon-inactive {
+  opacity: 0.45;
+  filter: grayscale(1);
+  animation: none;
+}
+
+.renovate-review-beacon-inactive:hover {
+  opacity: 0.75;
+  filter: grayscale(0.35);
 }
 
 @keyframes renovate-review-beacon-pulse {
@@ -521,25 +572,6 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
 
 .metric-value-uds-packages {
   color: var(--d2d-color-warning);
-}
-
-.customize-cards-done button,
-.workspace-primary-action button {
-  border-color: var(--d2d-color-warning) !important;
-  background: var(--d2d-color-warning) !important;
-  color: #111317 !important;
-}
-
-.customize-cards-done button:hover,
-.workspace-primary-action button:hover {
-  border-color: var(--d2d-color-warning-hover) !important;
-  background: var(--d2d-color-warning-hover) !important;
-}
-
-.customize-cards-done button:active,
-.workspace-primary-action button:active {
-  border-color: var(--d2d-color-warning-active) !important;
-  background: var(--d2d-color-warning-active) !important;
 }
 
 .overview-card-slot-customizing {
@@ -753,6 +785,11 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   grid-template-columns: minmax(260px, 1fr) minmax(220px, 320px);
   gap: 12px;
   align-items: end;
+}
+
+.renovate-table-filters,
+.pull-request-table-filters {
+  grid-template-columns: minmax(260px, 1fr) repeat(2, minmax(220px, 320px));
 }
 
 .infrastructure-filters {
@@ -1000,22 +1037,6 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   border-left: 2px solid #737a84;
 }
 
-.test-lab-primary-action button:not(:disabled) {
-  border-color: #1f6feb !important;
-  background: #1f6feb !important;
-  color: #ffffff !important;
-}
-
-.test-lab-primary-action button:not(:disabled):hover {
-  border-color: #388bfd !important;
-  background: #388bfd !important;
-}
-
-.test-lab-primary-action button:not(:disabled):active {
-  border-color: #1158c7 !important;
-  background: #1158c7 !important;
-}
-
 .test-lab-confirm-steps {
   display: grid;
   gap: 12px;
@@ -1166,6 +1187,109 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   flex-wrap: wrap;
 }
 
+.drawer-selected-failure-heading {
+  color: #d6a514;
+}
+
+.drawer-failure-details-attention-a {
+  border-radius: 12px;
+  animation: drawer-failure-attention-a 1.8s ease-out;
+}
+
+.drawer-failure-details-attention-b {
+  border-radius: 12px;
+  animation: drawer-failure-attention-b 1.8s ease-out;
+}
+
+@keyframes drawer-failure-attention-a {
+  0%, 35% {
+    background-color: rgb(214 165 20 / 10%);
+    outline: 1px solid rgb(214 165 20 / 70%);
+  }
+  100% {
+    background-color: transparent;
+    outline: 1px solid transparent;
+  }
+}
+
+@keyframes drawer-failure-attention-b {
+  0%, 35% {
+    background-color: rgb(214 165 20 / 10%);
+    outline: 1px solid rgb(214 165 20 / 70%);
+  }
+  100% {
+    background-color: transparent;
+    outline: 1px solid transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-failure-details-attention-a,
+  .drawer-failure-details-attention-b {
+    animation-duration: 1ms;
+  }
+}
+
+.drawer-failed-checks-scroll-target,
+.drawer-failure-details,
+.drawer-notes-scroll-target {
+  scroll-margin-top: 16px;
+}
+
+.drawer-failure-list {
+  display: grid;
+  gap: 8px;
+}
+
+.drawer-failure-option {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid #34383e;
+  border-radius: 6px;
+}
+
+.drawer-failure-option-selected {
+  padding-left: 10px;
+  border-left: 3px solid var(--d2d-color-warning);
+  background: #181b1f;
+}
+
+.drawer-failure-details {
+  padding-top: 16px;
+  border-top: 1px solid #34383e;
+}
+
+.drawer-failed-job {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid #d91515;
+  background: #181b1f;
+}
+
+.drawer-failed-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.workflow-task-list {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-task {
+  padding: 8px 10px;
+  border: 1px solid #34383e;
+  border-radius: 6px;
+  background: #181b1f;
+}
+
+.workflow-task-complete {
+  opacity: 0.65;
+}
+
 body.awsui-dark-mode div[class*="awsui_drawer_"] {
   background-color: #0b0c0e;
 }
@@ -1298,6 +1422,14 @@ div[class*="awsui_drawers-mobile-triggers-container_"] {
 
   .setup-github-profile {
     grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .first-run-welcome {
+    grid-template-columns: 1fr;
+  }
+
+  .first-run-welcome-logo {
+    width: 72px;
   }
 
   .setup-github-profile > :last-child {

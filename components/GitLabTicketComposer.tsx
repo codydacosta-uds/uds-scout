@@ -18,6 +18,7 @@ import Table from "@cloudscape-design/components/table";
 import Textarea from "@cloudscape-design/components/textarea";
 import { useEffect, useState } from "react";
 import { MAX_GITLAB_TICKET_BATCH } from "@/lib/gitlab-ticket-constants";
+import { PrimaryActionButton } from "./action-ui";
 import type { SetupGitlabProjectCatalog } from "./setup-types";
 
 type TicketDraft = {
@@ -35,22 +36,6 @@ type TicketBatchResult = {
   failed: { clientId: string; title: string; error: string }[];
   error?: string;
 };
-
-const stageStyle = {
-  root: {
-    background: { default: "#238636", hover: "#2ea043", active: "#1f6f32" },
-    borderColor: { default: "#2ea043", hover: "#3fb950", active: "#238636" },
-    color: { default: "#ffffff", hover: "#ffffff", active: "#ffffff" },
-  },
-} as const;
-
-const submitStyle = {
-  root: {
-    background: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
-    borderColor: { default: "var(--d2d-color-warning)", hover: "var(--d2d-color-warning-hover)", active: "var(--d2d-color-warning-active)" },
-    color: { default: "#0b0c0e", hover: "#0b0c0e", active: "#0b0c0e" },
-  },
-} as const;
 
 function descriptionPreview(description: string) {
   if (!description) return "No description";
@@ -212,11 +197,15 @@ export function GitLabTicketComposer() {
                 type: "success" as const,
                 header: `${result.created.length} ${result.created.length === 1 ? "ticket was" : "tickets were"} created`,
                 content: <SpaceBetween size="xxs">{result.created.map((ticket) => <Link key={ticket.id} href={ticket.url} external>#{ticket.iid} {ticket.title}</Link>)}</SpaceBetween>,
+                dismissible: true,
+                onDismiss: () => setResult(null),
               }] : []),
               ...(result.failed.length || result.error ? [{
                 type: "error" as const,
                 header: result.error ?? `${result.failed.length} ${result.failed.length === 1 ? "ticket" : "tickets"} could not be created`,
                 content: result.failed.length ? <SpaceBetween size="xxs">{result.failed.map((ticket) => <Box key={ticket.clientId}>{ticket.title}: {ticket.error}</Box>)}</SpaceBetween> : undefined,
+                dismissible: true,
+                onDismiss: () => setResult(null),
               }] : []),
             ]} />
           ) : null}
@@ -266,8 +255,6 @@ export function GitLabTicketComposer() {
               </FormField>
               <SpaceBetween direction="horizontal" size="s">
                 <Button
-                  variant="primary"
-                  style={stageStyle}
                   onClick={stageTicket}
                   disabled={!targetProject || !normalizedTitle || title.length > 255 || description.length > 50_000 || atLimit}
                 >
@@ -288,7 +275,7 @@ export function GitLabTicketComposer() {
                 variant="h2"
                 counter={`(${drafts.length}/${MAX_GITLAB_TICKET_BATCH})`}
                 description="No Gitlab write occurs until the reviewed batch is confirmed."
-                actions={<Button style={submitStyle} disabled={!drafts.length || Boolean(editingId)} onClick={() => setReviewOpen(true)}>Review batch</Button>}
+                actions={<PrimaryActionButton disabled={!drafts.length || Boolean(editingId)} onClick={() => setReviewOpen(true)}>Review batch</PrimaryActionButton>}
               >
                 Staged tickets
               </Header>
@@ -309,7 +296,7 @@ export function GitLabTicketComposer() {
         onDismiss={() => { if (!submitting) setReviewOpen(false); }}
         header={`Review ${drafts.length} ${drafts.length === 1 ? "ticket" : "tickets"}`}
         size="large"
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="s"><Button disabled={submitting} onClick={() => setReviewOpen(false)}>Continue editing</Button><Button style={submitStyle} loading={submitting} onClick={submitBatch}>Create {drafts.length} {drafts.length === 1 ? "ticket" : "tickets"}</Button></SpaceBetween></Box>}
+        footer={<Box float="right"><SpaceBetween direction="horizontal" size="s"><Button disabled={submitting} onClick={() => setReviewOpen(false)}>Continue editing</Button><PrimaryActionButton loading={submitting} onClick={submitBatch}>Create {drafts.length} {drafts.length === 1 ? "ticket" : "tickets"}</PrimaryActionButton></SpaceBetween></Box>}
       >
         <SpaceBetween size="m">
           <Box color="text-body-secondary">This creates issues immediately in <Box variant="strong" display="inline">{targetProject ?? "the selected project"}</Box>. Gitlab processes each ticket separately, so a batch can partially succeed.</Box>

@@ -1,4 +1,5 @@
 import type { RenovateReviewDay } from "@/lib/renovate-review";
+import type { RenovateUpdateDetails } from "@/lib/renovate-update";
 
 export type ZeusFilesystemUsage = {
   label: string;
@@ -98,6 +99,7 @@ export type PullRequestWorkflow = {
   reviewRequestedFromViewer: boolean;
   automation: boolean;
   renovate: boolean;
+  renovateUpdate: RenovateUpdateDetails | null;
   elevatedAutomation: boolean;
   ignored: boolean;
 };
@@ -165,7 +167,7 @@ export type Repository = {
   unassignedRenovatePulls: number;
   reviewRequests: number;
   issueCount: number;
-  udsCommon: { status: UdsCommonStatus; versions: string[] } | null;
+  udsCommon: { status: UdsCommonStatus; versions: string[]; tasksUrl: string | null } | null;
   health: "healthy" | "attention" | "unknown";
   attention: {
     level: "action-required" | "needs-attention" | "monitor" | "healthy" | "unknown";
