@@ -10,6 +10,11 @@ export type SetupStatus = {
   viewer: SetupViewer | null;
   renovateReviewDay: RenovateReviewDay;
   workspacePresets: WorkspacePreset[];
+  registry: {
+    connected: boolean;
+    credentialSource: "environment" | "session" | null;
+    environmentAvailable: boolean;
+  };
   gitlab: {
     hasToken: boolean;
     tokenSource: "environment" | "session" | null;

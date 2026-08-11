@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { githubContainerRegistryAuthorization } from "@/lib/github";
 import type { ParsedImageReference } from "@/lib/security-normalization";
+import { defenseRegistryAuthorization } from "@/lib/security-registry-auth";
 
 const MANIFEST_ACCEPT = [
   "application/vnd.oci.image.index.v1+json",
@@ -74,11 +75,7 @@ async function registryToken(challenge: { realm: string; service?: string; scope
 
 function registryAuthorization(image: ParsedImageReference) {
   if (image.registryHost === "ghcr.io") return githubContainerRegistryAuthorization();
-  if (image.registryHost === "registry.defenseunicorns.com") {
-    const username = (process.env.UDS_SCOUT_DEFENSE_REGISTRY_USERNAME ?? process.env.UDS_SCOUT_CGR_USERNAME)?.trim();
-    const password = process.env.UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD ?? process.env.UDS_SCOUT_CGR_PASSWORD;
-    if (username && password) return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-  }
+  if (image.registryHost === "registry.defenseunicorns.com") return defenseRegistryAuthorization();
   return undefined;
 }
 
@@ -122,6 +119,10 @@ async function registryFetch(image: ParsedImageReference, path: string, accept: 
 
 function json<T>(bytes: Uint8Array): T {
   return JSON.parse(new TextDecoder().decode(bytes)) as T;
+}
+
+export function clearSecurityRegistryTokenCache() {
+  tokenCache.clear();
 }
 
 export async function resolveImageManifest(image: ParsedImageReference) {

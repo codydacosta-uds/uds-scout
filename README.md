@@ -144,12 +144,12 @@ The development server uses `127.0.0.1:3001`.
 On first boot:
 
 1. Connect or confirm the required GitHub token.
-2. Optionally connect a GitLab token.
+2. Optionally connect GitLab and Defense Unicorns Registry credentials.
 3. Select the GitHub repositories Scout should monitor.
 4. If GitLab is connected, select the GitLab projects used for assigned work items and choose an optional default ticket project.
 5. Save the workspace and continue to the dashboard.
 
-Tokens entered in the browser are validated by the server and retained only for the current app process. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Non-secret selections are stored with local-user permissions at:
+GitHub, GitLab, and registry credentials entered in the browser are validated by the server and retained only for the current app process. Registry credentials are sent only to `registry.defenseunicorns.com`, are never returned in setup status, and can be replaced or disconnected from Workspace settings. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Non-secret selections are stored with local-user permissions at:
 
 ```text
 ~/.config/uds-scout/settings.json
@@ -269,6 +269,7 @@ Primary routes include:
 - `GET /api/setup/status` — connection and local workspace readiness
 - `POST /api/setup/connect` — validate a session GitHub token
 - `POST /api/setup/gitlab/connect` — validate a session GitLab token
+- `POST /api/setup/registry/connect` — validate session-only Defense Unicorns Registry credentials
 - `GET|POST /api/setup/repositories` — list GitHub repositories and save workspace selections
 - `GET /api/setup/gitlab/projects` — list or validate accessible GitLab projects
 - `GET /api/github/overview` — aggregated GitHub operational dashboard

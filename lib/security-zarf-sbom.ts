@@ -4,6 +4,7 @@ import type { ZarfPackage } from "@/components/security-types";
 import { githubRequest } from "@/lib/github";
 import { parseImageReference } from "@/lib/security-normalization";
 import { discoverPublishedZarfSboms } from "@/lib/security-oci";
+import { defenseRegistryCredentialStatus } from "@/lib/security-registry-auth";
 import { parseSbom, sbomAssociationText } from "@/lib/security-sbom";
 import type { SecuritySbomDocument } from "@/lib/security-sbom-resolvers";
 
@@ -41,9 +42,7 @@ class UdsPackagesPublishedZarfResolver implements PublishedZarfLocationResolver 
 
 class DefenseUnicornsPrivateZarfResolver implements PublishedZarfLocationResolver {
   async locations(repository: string) {
-    const username = (process.env.UDS_SCOUT_DEFENSE_REGISTRY_USERNAME ?? process.env.UDS_SCOUT_CGR_USERNAME)?.trim();
-    const password = process.env.UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD ?? process.env.UDS_SCOUT_CGR_PASSWORD;
-    if (!username || !password) return [];
+    if (!defenseRegistryCredentialStatus().configured) return [];
     const { name, tags } = await latestUdsPackageReleases(repository);
     if (!name) return [];
     return ["registry1", "unicorn"].flatMap((flavor) => {
