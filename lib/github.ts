@@ -44,6 +44,11 @@ export function currentGitHubViewer() {
   return runtimeState.__d2dGitHubViewer ?? null;
 }
 
+export function githubContainerRegistryAuthorization() {
+  const viewer = currentGitHubViewer() ?? "uds-scout";
+  return `Basic ${Buffer.from(`${viewer}:${token()}`, "utf8").toString("base64")}`;
+}
+
 export function clearGitHubCache() {
   cacheGeneration += 1;
   responseCache.clear();
@@ -133,6 +138,25 @@ export async function githubRequest<T>(path: string, ttl = CACHE_TTL): Promise<T
   } finally {
     if (inFlightRequests.get(path) === request) inFlightRequests.delete(path);
   }
+}
+
+export async function githubBinaryRequest(path: string, maximumBytes = 20 * 1024 * 1024) {
+  const response = await fetch(`${API_ROOT}${path}`, {
+    headers: {
+      Accept: "application/octet-stream",
+      Authorization: `Bearer ${token()}`,
+      "X-GitHub-Api-Version": API_VERSION,
+      "User-Agent": USER_AGENT,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new GitHubApiError(`GitHub asset download failed: ${response.statusText}`, response.status);
+  const declaredSize = Number(response.headers.get("content-length") ?? 0);
+  if (declaredSize > maximumBytes) throw new GitHubApiError("GitHub asset exceeds Scout's security metadata size limit.", 413);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maximumBytes) throw new GitHubApiError("GitHub asset exceeds Scout's security metadata size limit.", 413);
+  return bytes;
 }
 
 export async function githubGraphQL<T>(query: string, variables: Record<string, unknown>, ttl = CACHE_TTL): Promise<T> {

@@ -36,6 +36,7 @@ import {
   udsCommonStatusAction,
   UdsCoreVersion,
 } from "./operations-ui";
+import type { SecuritySeverity } from "./security-types";
 import type { Overview, PullRequest } from "./types";
 
 function markdownText(value: string) {
@@ -126,6 +127,14 @@ function PullRequestDescription({ pull }: { pull: PullRequest }) {
   return dependencyTable
     ? <ExpandableSection variant="container" headerText={`Dependency changes (${table.rows.length})`}>{details}</ExpandableSection>
     : <Container header={<Header variant="h3" counter={`(${table.rows.length})`}>Structured changes</Header>}>{details}</Container>;
+}
+
+function securitySeverityBadge(severity: SecuritySeverity) {
+  if (severity === "critical") return <Badge color="red">Critical</Badge>;
+  if (severity === "high") return <Badge color="severity-high">High</Badge>;
+  if (severity === "medium") return <Badge color="severity-medium">Medium</Badge>;
+  if (severity === "low") return <Badge color="grey">Low</Badge>;
+  return <Badge color="grey">Unknown</Badge>;
 }
 
 function CenteredDrawerEmptyState({ title, detail }: { title: string; detail: string }) {
@@ -306,6 +315,45 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 }) {
   if (selection.type === "infrastructure-node" && infrastructure) {
     return <InfrastructureNodeDrawer node={selection.node} data={infrastructure} onSelect={(node) => onSelect({ type: "infrastructure-node", node })} />;
+  }
+
+  if (selection.type === "security-finding") {
+    const { finding, vulnerability } = selection;
+    const advisoryUrl = vulnerability.references[0] ?? null;
+    const contexts = [...new Map(selection.occurrences.map((occurrence) => {
+      const context = `${occurrence.affectedPackage} ${occurrence.installedVersion ?? "version unknown"} · ${occurrence.component}${occurrence.flavor ? ` · ${occurrence.flavor}` : ""}`;
+      return [context.toLowerCase(), context];
+    })).values()];
+    const footer = <SpaceBetween direction="horizontal" size="xs">{advisoryUrl ? <DrawerPrimaryButton href={advisoryUrl} external>Open advisory</DrawerPrimaryButton> : <DrawerPrimaryButton onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</DrawerPrimaryButton>}{advisoryUrl ? <Button onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</Button> : null}</SpaceBetween>;
+    return (
+      <Drawer header={vulnerability.id} footer={footer}>
+        <SpaceBetween size="l">
+          <SpaceBetween size="xs">
+            {securitySeverityBadge(vulnerability.severity)}
+            <Box variant="h3">{vulnerability.summary}</Box>
+          </SpaceBetween>
+          <DrawerKeyValueList items={[
+            { label: "Repository", value: selection.repository },
+            { label: "Affected version", value: finding.installedVersion ?? "Version unknown" },
+            { label: "Fixed version", value: finding.fixedVersion ?? "No fixed version reported" },
+            { label: "Finding type", value: finding.category === "application" ? "Direct application advisory" : finding.category.replace("container-", "Container ") },
+            ...(selection.exposure ? [{ label: "Exposure", value: selection.exposure.charAt(0).toUpperCase() + selection.exposure.slice(1) }] : []),
+            { label: "Source", value: finding.sources.join(", ") },
+            { label: "First seen", value: relativeTime(finding.firstSeenAt, overview.generatedAt) },
+            { label: "Last checked", value: relativeTime(finding.lastSeenAt, overview.generatedAt) },
+          ]} />
+          {vulnerability.aliases.length ? <Container header={<Header variant="h3">Identifiers</Header>}><SpaceBetween direction="horizontal" size="xs">{vulnerability.aliases.map((alias) => <Badge key={alias}>{alias}</Badge>)}</SpaceBetween></Container> : null}
+          <Container header={<Header variant="h3" counter={`(${contexts.length})`}>Affected package contexts</Header>}>
+            <SpaceBetween size="xs">
+              {contexts.slice(0, 8).map((context) => <Box key={context}>{context}</Box>)}
+              {contexts.length > 8 ? <Box color="text-body-secondary">{contexts.length - 8} additional contexts are represented in the repository findings table.</Box> : null}
+            </SpaceBetween>
+          </Container>
+          {selection.pull ? <Container header={<Header variant="h3">Related update</Header>}><SpaceBetween size="xs">{pullWorkflowStatus(selection.pull)}<Box>{selection.pull.title}</Box><Button variant="inline-link" onClick={() => onSelect({ type: "pull-request", pull: selection.pull!, repository: selection.repository })}>Open PR #{selection.pull.number}</Button></SpaceBetween></Container> : finding.fixedVersion ? <StatusIndicator type="warning">No matching open update pull request was found</StatusIndicator> : null}
+          {vulnerability.description && vulnerability.description !== vulnerability.summary ? <ExpandableSection variant="container" headerText="Advisory details"><Box>{vulnerability.description}</Box></ExpandableSection> : null}
+        </SpaceBetween>
+      </Drawer>
+    );
   }
 
   if (selection.type === "pull-request") {

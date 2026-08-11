@@ -6,6 +6,9 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Added
 
+- Added a repository release and application-version panel that compares default-branch Zarf application versions with the latest matching flavor releases and links them to known security findings.
+- Added zero-configuration Security Intelligence for tracked Zarf repositories, with content-based package discovery, application and image normalization, immutable OCI digest resolution, remote SBOM discovery, optional authenticated Defense Unicorns Registry Zarf metadata, batched OSV and GitHub advisory matching, curated NVD application-product CVE coverage, Jenkins and GitLab vendor advisory matching, maintainer-focused application decisions with CVE inspection drawers and directly linked authoritative advisories, explicit per-source coverage, progressive local caching, repository Security tabs, a repository-oriented global view, and explicit exclusion of the SONIC infrastructure/deployment repository.
+- Added reusable security product profiles and a repeatable Security Intelligence enrichment skill for auditing newly selected repositories, validating product coordinates and advisory ranges, and adding vendor coverage without repository-specific CVE rules.
 - Added `task update` for safely fast-forwarding a clean `main` checkout, rebuilding the Docker image, and replacing the running Scout container while preserving saved workspace settings.
 - Added pipeline-state filtering to the full Renovate updates page for failed or cancelled, running, passed, and no-check updates.
 - Added a browser-local daily control to show or hide the overview Renovate review without changing its configured weekly schedule.
@@ -31,6 +34,8 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Fixed
 
+- Security Intelligence now discovers SBOMs from published `uds-packages/*` Zarf OCI releases and public Defense Unicorns Registry scans, reports unevaluated scopes as not established instead of displaying misleading zero-CVE counts, distinguishes mixed repository coverage from fully unavailable coverage, and shows upstream, Registry1, and unicorn coverage separately.
+- Security Intelligence now groups release-coupled product images, excludes test and helper images from application counts, rejects untrusted mirror package versions, validates NVD CPE bounds locally, and honors OSV custom affected ranges to prevent historical or unrelated direct-CVE false positives.
 - Docker startup now waits for Scout to become reachable from the host and prints recent container logs when readiness fails.
 - Docker startup accounts for a briefly retained OrbStack loopback forwarding entry when replacing the container.
 - GitHub DNS, timeout, refused-connection, reset, and unreachable-network failures now return actionable connection guidance instead of a generic server error.

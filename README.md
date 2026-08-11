@@ -1,6 +1,6 @@
 # UDS Scout
 
-UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of repositories. It brings review work, dependency updates, issues, pipeline failures, version alignment, and infrastructure knowledge into one focused interface.
+UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of repositories. It brings review work, dependency updates, issues, pipeline failures, version alignment, infrastructure knowledge, and package-focused security context into one focused interface.
 
 See [CHANGELOG.md](CHANGELOG.md) for released and upcoming user-facing changes.
 
@@ -48,6 +48,23 @@ Scout does not replace maintainer judgment or silently mutate repositories. It a
 - Show current Zarf, Pepr, and UDS CLI releases.
 - Browse the UDS Packages organization through a searchable, sortable, paginated catalog with contributor totals.
 
+### Security Intelligence
+
+For every eligible tracked package repository, Scout progressively checks for valid Zarf package definitions by content rather than filename. The SONIC infrastructure/deployment repository is intentionally excluded from Security Intelligence. When package metadata is available, Scout can:
+
+- Keep application findings separate from container dependency findings.
+- Normalize package, component, flavor, image tag, and immutable OCI digest relationships.
+- Identify and group primary applications conservatively from Zarf metadata, charts, image names, and reusable product profiles, while keeping helpers, test fixtures, and utility images as container evidence.
+- Query OSV, GitHub Global and upstream-repository Security Advisories, NVD for verified application-product CPEs with local affected-range validation, and authoritative vendor feeds such as Jenkins advisories and GitLab patch releases where available.
+- Inspect OCI referrers, GitHub artifact attestations, repository/release assets, published UDS Zarf OCI packages, and the public Defense Unicorns Registry catalog for remotely available SBOMs and vulnerability reports.
+- Parse associated dependency inventories and classify container OS, language, and other findings.
+- Lead with the maintainer decision: affected application version, exposure knowledge, fixed version, matching update pull request, and check state.
+- Show full, partial, unknown, or unavailable coverage independently from finding totals.
+
+Adding or removing a tracked repository requires no repository-specific security configuration. An unfamiliar product may require one reusable Scout product profile or vendor adapter; until then Scout keeps its application identity or advisory-source gap explicit rather than guessing.
+
+Security enrichment runs inside Scout with bounded concurrency and never requires Docker, Syft, Grype, Trivy, CI changes, an external Scout service, or manually uploaded SBOMs. When a registry requires unavailable credentials or no associated remote SBOM exists, Scout says coverage is unavailable instead of reporting zero vulnerabilities. Scout reports known remotely observable posture for maintainers; it does not replace enterprise or runtime security platforms.
+
 ### Infrastructure Explorer
 
 When `nswccd-devsecops/sonic-swf-iac` is selected, the Infrastructure Explorer can:
@@ -77,8 +94,8 @@ GitLab is not yet a second repository-operations dashboard in this release. GitH
 - GitLab writes are limited to the staged, reviewed, and explicitly confirmed ticket-composer workflow.
 - GitHub and GitLab tokens are read only by Next.js server code and are never returned in browser API responses.
 - Tokens entered during setup remain in server memory for the current process; environment tokens remain outside persisted Scout settings.
-- Only non-secret workspace preferences are stored locally.
-- No database, webhook service, background worker, or application authentication system is required.
+- Only non-secret workspace preferences and normalized repository security cache data are stored locally.
+- No database, webhook service, background worker, scanner installation, or application authentication system is required.
 - Test Lab is not enabled or exposed in this release.
 - The development server binds to `127.0.0.1`. Docker binds to `0.0.0.0` only inside the container and is published on `127.0.0.1` by the documented command.
 
@@ -89,7 +106,9 @@ GitLab is not yet a second repository-operations dashboard in this release. GitH
 - AWS Cloudscape Design System
 - GitHub REST and GraphQL APIs
 - GitLab REST and GraphQL APIs
-- Local in-memory request caching
+- Local in-memory request caching and an atomic on-disk security enrichment cache
+- OSV, GitHub Global Security Advisories, OCI Distribution APIs, OCI referrers, and GitHub artifact attestations
+- SPDX JSON, CycloneDX JSON, and Syft JSON normalization
 - Terraform parsing with CDK for Terraform HCL-to-JSON tooling
 
 ## Run locally
@@ -157,10 +176,14 @@ You can also copy `.env.local.example` to `.env.local`. Never commit `.env.local
 | --- | --- | --- |
 | `GITHUB_TOKEN` | Yes, unless entered during setup | Server-only GitHub API token |
 | `GH_TOKEN` | No | Fallback GitHub token name |
+| `UDS_SCOUT_DEFENSE_REGISTRY_USERNAME` | No | Server-only `registry.defenseunicorns.com` username for read-only private Zarf metadata |
+| `UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD` | No | Server-only registry password or pull token; sent only to the exact `registry.defenseunicorns.com` host |
+| `NVD_API_KEY` | No | Optional server-only NVD API key for faster application-product advisory refreshes; the rate-limited public API works without it |
 | `GITLAB_TOKEN` | No | Server-only GitLab API token |
 | `GITLAB_URL` | No | GitLab origin; defaults to `https://gitlab.sonic.mil` |
 | `GITHUB_REPOSITORIES` | No | Comma-separated repository override that takes precedence over the saved selection |
 | `UDS_SCOUT_SETTINGS_PATH` | No | Alternate location for non-secret local settings |
+| `UDS_SCOUT_SECURITY_PATH` | No | Alternate location for the non-secret local security cache; defaults beside settings |
 
 ## Run with Docker
 
@@ -222,6 +245,8 @@ For unattended startup, provide tokens to the container at runtime through a pro
 - `components/InfrastructureExplorer.tsx` — infrastructure inventory and dependency knowledge UI
 - `lib/github.ts` and `lib/github-operations.ts` — GitHub API access, caching, and workflow inference
 - `lib/gitlab.ts` — GitLab API access, caching, project validation, and controlled mutations
+- `lib/security-service.ts` and `lib/security-*` — Zarf discovery, application/advisory normalization, OCI/SBOM inspection, caching, and progressive refresh
+- `components/SecurityIntelligence.tsx` — global and repository-level security context
 - `lib/terraform-explorer.ts` — Terraform analysis and dependency inference
 
 ## Server API routes
@@ -234,6 +259,7 @@ Primary routes include:
 - `GET|POST /api/setup/repositories` — list GitHub repositories and save workspace selections
 - `GET /api/setup/gitlab/projects` — list or validate accessible GitLab projects
 - `GET /api/github/overview` — aggregated GitHub operational dashboard
+- `GET /api/security[?repository=owner/repository]` — cached security state and progressive tracked-repository enrichment
 - `GET /api/github/repository?repo=owner/repository` — one selected repository workspace
 - `GET /api/github/infrastructure` — SONIC Terraform source analysis
 - `GET /api/github/uds-packages` — UDS Packages repository catalog

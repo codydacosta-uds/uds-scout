@@ -23,11 +23,13 @@ import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import { useEffect, useState } from "react";
 import { renovateReviewDayForDate } from "@/lib/renovate-review";
+import { isSecurityIntelligenceRepository } from "@/lib/repository-constants";
 import { PrimaryActionButton } from "./action-ui";
 import { InfoPopover as PanelInfo } from "./info-ui";
 import type { DrawerSelection } from "./operations-types";
 import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryAttentionAction, repositoryHealth, udsCommonStatusAction } from "./operations-ui";
 import { filterRenovateUpdatesByCheck, isMajorRenovateUpdate, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
+import type { SecurityWorkspace } from "./security-types";
 import type { GitLabWorkItems, Overview, RepositoryCatalog } from "./types";
 
 function greetingForHour(hour: number) {
@@ -178,8 +180,9 @@ function SortableOverviewCard({ id, label, customizing, children }: {
   );
 }
 
-export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
+export function OverviewPage({ overview, securityWorkspace, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
   overview: Overview;
+  securityWorkspace: SecurityWorkspace | null;
   refreshing: boolean;
   refreshError: string | null;
   gitLabWorkItems: GitLabWorkItems | null;
@@ -208,6 +211,7 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
   const commonDisplayedVersion = commonOutdated
     ? commonReferencedVersions.length === 1 ? commonReferencedVersions[0] : "Mixed versions"
     : overview.udsCommon.latestVersion ?? "Unavailable";
+  const securityByRepository = new Map((securityWorkspace?.repositories ?? []).map((item) => [item.repositoryId.toLowerCase(), item]));
   const udsWarningLabel = overview.udsCommon.needsAttention
     ? "UDS Common versions need alignment"
     : overview.udsCore.comparison === "behind"
@@ -467,7 +471,7 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
           stickyHeader
           stripedRows
           trackBy="id"
-          header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Attention across selected repositories." info={<PanelInfo header="Repository attention">Action required means an observable failure or work waiting on you. Needs attention covers blockers, merge-ready work, and unowned human pull requests. Monitor is non-default-branch activity worth watching. Routine automation and pull requests labeled stale do not elevate repository attention.</PanelInfo>}>Repository status</Header>}
+          header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Attention across selected repositories." info={<PanelInfo header="Repository attention">Action required means an observable failure or work waiting on you. Needs attention covers blockers, merge-ready work, and unowned human pull requests. Security appears as an additional repository context signal, with incomplete visibility kept explicit. Routine automation and pull requests labeled stale do not elevate repository attention.</PanelInfo>}>Repository status</Header>}
           items={overview.repositories}
           columnDefinitions={[
             { id: "repository", header: "Repository", cell: (item) => <SpaceBetween size="xxs"><Link href={`/repositories/${item.fullName}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "repository", repository: item }); }} fontSize="body-m">{item.name}</Link><Box color="text-body-secondary">{item.fullName.split("/")[0]}</Box></SpaceBetween>, sortingField: "name" },
@@ -476,6 +480,7 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
             { id: "reviews", header: "Your reviews", cell: (item) => item.reviewRequests ? <Button variant="inline-link" onClick={() => openDrawer({ type: "review-requests", repository: item.fullName })}>{item.reviewRequests} requested</Button> : <Box color="text-body-secondary">None</Box> },
             { id: "pipeline", header: "Default branch workflow", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "pipelines", repository: item.fullName })}>{pipelineStatus(item.pipeline)}</Button> },
             { id: "renovate", header: "Renovate attention", cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} elevated</Badge></Link> : <Box color="text-body-secondary">Informational</Box> },
+            { id: "security", header: "Security context", cell: (item) => { if (!isSecurityIntelligenceRepository(item.fullName)) return <Box color="text-body-secondary">Not included</Box>; const security = securityByRepository.get(item.fullName.toLowerCase()); if (!security || security.state === "queued" || security.state === "refreshing" || security.state === "pending") return <StatusIndicator type="in-progress">Analyzing</StatusIndicator>; if (!security.applicable) return <Box color="text-body-secondary">Not applicable</Box>; const hasCoverage = security.applications.some((application) => application.coverage !== "unknown") || security.artifacts.some((artifact) => artifact.securityCoverage.container !== "unavailable"); const complete = security.applications.every((application) => application.coverage === "full") && security.artifacts.every((artifact) => artifact.securityCoverage.container === "full"); const appFindings = security.findings.filter((finding) => finding.category === "application"); const appCves = new Set(appFindings.map((finding) => finding.vulnerabilityId)); const appCritical = appFindings.some((finding) => finding.severity === "critical"); const severeDependencies = security.findings.filter((finding) => finding.category !== "application" && (finding.severity === "critical" || finding.severity === "high")).length; const label = appCves.size ? `${appCves.size} direct app CVEs` : severeDependencies ? `${severeDependencies} Critical / High dependencies` : !hasCoverage ? "Coverage unavailable" : !complete ? "Coverage limited" : "No immediate action"; return <Button variant="inline-link" onClick={() => navigate(`/repositories/${item.fullName}?tab=security`)}>{appCritical ? <StatusIndicator type="error">{label}</StatusIndicator> : appCves.size || severeDependencies ? <StatusIndicator type="warning">{label}</StatusIndicator> : !complete ? <StatusIndicator type="pending">{label}</StatusIndicator> : <StatusIndicator type="success">{label}</StatusIndicator>}</Button>; } },
             { id: "uds-common", header: "UDS Common", cell: (item) => item.udsCommon ? udsCommonStatusAction(item.udsCommon, () => openDrawer({ type: "uds-common", repository: item.fullName })) : <Box color="text-body-secondary">Not applicable</Box> },
           ]}
           empty={<EmptyState title="No repositories configured" detail="Add repositories to the tracked repository configuration." />}

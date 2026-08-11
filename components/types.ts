@@ -366,8 +366,18 @@ export type GitLabWorkItems = {
   generatedAt: string;
 };
 
+export type RepositoryRelease = {
+  id: number;
+  tag: string;
+  name: string;
+  url: string;
+  publishedAt: string | null;
+  prerelease: boolean;
+};
+
 export type RepositoryWorkspace = {
   repository: Repository;
+  releases: RepositoryRelease[];
   pullStats: { open: number; draft: number; closed: number; merged: number };
   pulls: { open: PullRequest[]; closed: PullRequest[] };
   issues?: Issue[];

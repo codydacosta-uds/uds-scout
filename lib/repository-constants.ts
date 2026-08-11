@@ -3,6 +3,10 @@ import repositoryGroups from "@/config/repository-groups.json";
 // SONIC capabilities are keyed to the selected repository, not to any quick-select group.
 export const SONIC_REPOSITORY = "nswccd-devsecops/sonic-swf-iac";
 
+export function isSecurityIntelligenceRepository(repository: string) {
+  return repository.toLowerCase() !== SONIC_REPOSITORY.toLowerCase();
+}
+
 // The implementation remains available for a future release, but no Test Lab
 // route, API, navigation item, or pull-request handoff is exposed yet.
 export const TEST_LAB_ENABLED = false;

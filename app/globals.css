@@ -1467,3 +1467,12 @@ div[class*="awsui_drawers-mobile-triggers-container_"] {
     height: 520px;
   }
 }
+
+.security-stage-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.security-stage-list > * {
+  min-width: 0;
+}
