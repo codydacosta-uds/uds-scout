@@ -23,6 +23,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Changed
 
+- Docker startup now loads optional server credentials from a protected `.env.local` runtime file and forwards supported exported token and registry variables without including them in the image.
 - Made the full Renovate updates table and scheduled overview review table use the same update details, labels, check status, approval status, pull-request status, age, and check-priority ordering.
 - Focused Renovate tables by default on failed or cancelled updates and major-version changes, with failures ahead of healthy major updates and the complete list still available.
 - Made the major Renovate overview card open a focused pull-request list, and linked outdated UDS Common statuses directly to the repository `tasks.yaml` that requires an update.

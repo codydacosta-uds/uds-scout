@@ -199,7 +199,20 @@ cd d2d-operations
 task docker:start
 ```
 
-Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in setup, and choose repositories. The token remains only in the running container process. The legacy-named `d2d-operations-data` volume is intentionally retained so existing saved selections survive the UDS Scout rename.
+To inspect private packages at `registry.defenseunicorns.com`, create a protected runtime environment file before starting:
+
+```bash
+cat > .env.local <<'EOF'
+UDS_SCOUT_DEFENSE_REGISTRY_USERNAME=your_registry_username
+UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD=your_registry_password_or_pull_token
+EOF
+chmod 600 .env.local
+task docker:start
+```
+
+`task docker:start` automatically supplies `.env.local` to the container at runtime. Supported credentials exported in the host shell are also forwarded by variable name and override the corresponding file value. They are never included in the image build. GitHub can use the same file with `GITHUB_TOKEN`, or it can still be entered in Scout setup.
+
+Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in setup if it was not supplied at runtime, and choose repositories. The token remains only in the running container process. The legacy-named `d2d-operations-data` volume is intentionally retained so existing saved selections survive the UDS Scout rename.
 
 ### Update an existing installation
 
@@ -233,7 +246,7 @@ task docker:logs  # Follow container logs
 task docker:stop  # Remove the container and preserve workspace settings
 ```
 
-For unattended startup, provide tokens to the container at runtime through a protected environment file or secret mechanism. Do not pass credentials as image build arguments or bake them into the image.
+For unattended startup, keep tokens in the protected `.env.local` runtime file or export them through the host's secret mechanism before running `task docker:start` or `task update`. Do not pass credentials as image build arguments or bake them into the image.
 
 ## Application structure
 
