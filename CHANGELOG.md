@@ -6,7 +6,6 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Added
 
-- Added a repository release and application-version panel that compares default-branch Zarf application versions with the latest matching flavor releases and links them to known security findings.
 - Added zero-configuration Security Intelligence for tracked Zarf repositories, with content-based package discovery, application and image normalization, immutable OCI digest resolution, remote SBOM discovery, optional authenticated Defense Unicorns Registry Zarf metadata, batched OSV and GitHub advisory matching, curated NVD application-product CVE coverage, Jenkins and GitLab vendor advisory matching, maintainer-focused application decisions with CVE inspection drawers and directly linked authoritative advisories, explicit per-source coverage, progressive local caching, repository Security tabs, a repository-oriented global view, and explicit exclusion of the SONIC infrastructure/deployment repository.
 - Added reusable security product profiles and a repeatable Security Intelligence enrichment skill for auditing newly selected repositories, validating product coordinates and advisory ranges, and adding vendor coverage without repository-specific CVE rules.
 - Added an optional Defense Unicorns Registry connection to setup and Workspace settings, with server-memory browser credentials, environment-managed status, validation, replacement, and disconnect controls.
@@ -24,6 +23,9 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Changed
 
+- Refocused Security Intelligence on Critical and High upstream application advisories, unique CVE decisions, and correlated update pull requests; package flavors and repeated image occurrences now remain internal evidence instead of separate maintainer queues.
+- Removed the repository-wide release/flavor security panel, reduced container findings to secondary context, and now refreshes lightweight upstream advisory sources every 15 minutes without repeating full image analysis.
+- Expanded automatic upstream identification with Zarf package URLs, chart URLs, official GHCR ownership, and reusable product profiles, while preserving explicit gaps for ambiguous products.
 - Docker startup now loads optional server credentials from a protected `.env.local` runtime file and forwards supported exported token and registry variables without including them in the image.
 - Made the full Renovate updates table and scheduled overview review table use the same update details, labels, check status, approval status, pull-request status, age, and check-priority ordering.
 - Focused Renovate tables by default on failed or cancelled updates and major-version changes, with failures ahead of healthy major updates and the complete list still available.

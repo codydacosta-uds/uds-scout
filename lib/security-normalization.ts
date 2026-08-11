@@ -76,12 +76,18 @@ export function resolveApplicationIdentity(input: {
   componentName: string;
   chartNames: string[];
   chartVersions: Array<string | null>;
+  chartUrls: Array<string | null>;
   image: ParsedImageReference;
 }): ResolvedApplicationIdentity {
   const component = normalizedName(input.componentName);
   const imageLeaf = normalizedName(input.image.repository.split("/").at(-1) ?? input.image.repository);
   const chartNames = input.chartNames.map(normalizedName);
-  const upstreamFromMetadata = input.packageUpstreamUrl?.match(/^https?:\/\/github\.com\/([^/]+\/[^/#]+?)(?:\.git)?(?:[#/]|$)/i)?.[1] ?? null;
+  const githubRepository = (value: string | null | undefined) => value?.match(/^https?:\/\/github\.com\/([^/]+\/[^/#]+?)(?:\.git)?(?:[#/]|$)/i)?.[1] ?? null;
+  const upstreamFromPackage = githubRepository(input.packageUpstreamUrl);
+  const upstreamFromChart = input.chartUrls.map(githubRepository).find(Boolean) ?? null;
+  const ghcrSegments = input.image.registryHost === "ghcr.io" ? input.image.repository.split("/") : [];
+  const upstreamFromImage = ghcrSegments.length >= 2 && !["uds-packages", "defenseunicorns"].includes(ghcrSegments[0].toLowerCase()) ? `${ghcrSegments[0]}/${ghcrSegments[1]}` : null;
+  const upstreamFromMetadata = upstreamFromPackage ?? upstreamFromChart ?? upstreamFromImage;
   const version = normalizedVersion(input.image.tag) ?? input.chartVersions.map(normalizedVersion).find(Boolean) ?? null;
   const testContext = [normalizedName(input.packageName), component].some((value) => /(?:^|[-_])tests?(?:$|[-_])/.test(value));
   if (testContext) return { name: null, version, upstreamRepository: upstreamFromMetadata, purl: null, cpe: null, confidence: "unknown", role: "support" };

@@ -14,9 +14,10 @@ Read `AGENTS.md` and [references/research-guide.md](references/research-guide.md
 
 - Never hardcode CVE IDs, findings, severities, fixed versions, or current application versions.
 - Product profiles are reusable coordinates, never repository allowlists.
-- Prefer an explicit identity or source gap over a guessed product, guessed CPE, or false zero.
+- Prefer an explicit identity or source gap over a guessed product, guessed CPE, or false zero. Present that gap as Scout enrichment work, not as a package-maintainer action.
 - Keep direct application advisories separate from container dependency findings.
-- Treat each same-CVE package/flavor occurrence as evidence, but use unique CVEs for maintainer-level summaries.
+- Prioritize Critical and High upstream application advisories. Keep lower-severity application findings available without giving them failure-level prominence.
+- Treat each same-CVE package/flavor occurrence as internal evidence, but use unique CVEs for maintainer decisions. Do not expose flavor-level queues unless flavors ship different affected versions that change the required update.
 - Keep GitHub and registry credentials server-only. Send Defense Unicorns registry credentials only to `registry.defenseunicorns.com`.
 - Do not require a scanner, worker, database, CI job, Docker, manual SBOM upload, or additional service.
 - Do not make GitHub mutations.
@@ -68,7 +69,7 @@ Use this precedence:
 4. Conservative reusable product profile in `lib/security-products.ts`.
 5. Probable display identity with explicit unknown direct-advisory coverage.
 
-A product profile may define canonical name, conservative image/chart patterns, upstream repository, PURL, CPE, and expected vendor sources. Verify every coordinate against an authoritative source and at least one live current artifact. One profile must cover the product across repositories and flavors.
+Before creating a product profile, attempt automatic upstream discovery from the Zarf package URL, chart URL/source metadata, official image ownership and OCI labels, and exact-digest SBOM coordinates. A product profile may then define canonical name, conservative image/chart patterns, upstream repository, PURL, CPE, and expected vendor sources. Verify every coordinate against an authoritative source and at least one live current artifact. One profile must cover the product across repositories and flavors.
 
 Do not add a profile merely to suppress an unknown state. Utility images should remain container evidence unless they are independently maintained applications requiring a direct-product decision.
 
@@ -81,6 +82,8 @@ Attempt generic sources before writing a custom adapter:
 3. Published GitHub repository security advisories for a verified upstream repository and valid affected-version ranges.
 4. NVD using a verified CPE vendor/product and version-range evaluation.
 5. Authoritative vendor data when generic coordinates cannot establish complete product coverage.
+
+Prioritize custom vendor adapters for high-impact, externally relevant products where authoritative upstream publication materially improves maintainer response time. Do not build a custom feed merely to make every package look complete.
 
 Create a vendor adapter only when necessary. It must:
 
@@ -112,6 +115,7 @@ Confirm that any fallback remains partial when Scout cannot independently resolv
 - Put generic and vendor advisory adapters in `lib/security-advisories.ts` or a focused provider module when large.
 - Keep normalized browser contracts in `components/security-types.ts`.
 - When identity or advisory semantics change, increment `SECURITY_ANALYSIS_VERSION` and `SERVICE_IMPLEMENTATION_VERSION` in `lib/security-service.ts` so selected repositories refresh while digest inventories remain cached.
+- Recheck lightweight authoritative upstream sources on the short application-advisory cycle while retaining exact-digest container evidence on the longer inventory cycle.
 - Keep refresh bounded, asynchronous, persistent, and non-blocking.
 - Update all global, repository, drawer, loading, empty, partial-error, and stale-data views when contracts change.
 - Add a concise `CHANGELOG.md` entry under **Unreleased**.

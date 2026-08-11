@@ -321,7 +321,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const { finding, vulnerability } = selection;
     const advisoryUrl = vulnerability.references[0] ?? null;
     const contexts = [...new Map(selection.occurrences.map((occurrence) => {
-      const context = `${occurrence.affectedPackage} ${occurrence.installedVersion ?? "version unknown"} · ${occurrence.component}${occurrence.flavor ? ` · ${occurrence.flavor}` : ""}`;
+      const context = `${occurrence.affectedPackage} ${occurrence.installedVersion ?? "version unknown"} · ${occurrence.component}`;
       return [context.toLowerCase(), context];
     })).values()];
     const footer = <SpaceBetween direction="horizontal" size="xs">{advisoryUrl ? <DrawerPrimaryButton href={advisoryUrl} external>Open advisory</DrawerPrimaryButton> : <DrawerPrimaryButton onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</DrawerPrimaryButton>}{advisoryUrl ? <Button onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</Button> : null}</SpaceBetween>;

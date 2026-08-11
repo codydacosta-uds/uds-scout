@@ -77,6 +77,7 @@ type ApplicationAdvisoryProvider = {
   query: (input: ApplicationAdvisoryInput) => Promise<AdvisoryMatch[]>;
 };
 
+const UPSTREAM_ADVISORY_TTL = 15 * 60_000;
 const osvDetailsCache = new Map<string, { expires: number; value: OsvVulnerability }>();
 const nvdCache = new Map<string, { expires: number; value: AdvisoryMatch[] }>();
 const nvdInflight = new Map<string, Promise<AdvisoryMatch[]>>();
@@ -416,7 +417,7 @@ function githubRangeAffects(version: string, range: string) {
 export async function queryGithubRepositoryAdvisories(repository: string, version: string) {
   const installed = semver.coerce(version)?.version;
   if (!installed) return [];
-  const advisories = await githubRequest<GithubAdvisory[]>(`/repos/${repository}/security-advisories?per_page=100`, 12 * 60 * 60_000);
+  const advisories = await githubRequest<GithubAdvisory[]>(`/repos/${repository}/security-advisories?per_page=100`, UPSTREAM_ADVISORY_TTL);
   return advisories.flatMap((advisory): AdvisoryMatch[] => {
     const affected = advisory.vulnerabilities?.filter((item) => githubRangeAffects(installed, item.vulnerable_version_range)) ?? [];
     if (!affected.length) return [];
@@ -497,7 +498,7 @@ async function gitlabReleaseFeed() {
   if (!response.ok) throw new Error(`GitLab security release lookup returned ${response.status}.`);
   const value = await response.text();
   if (value.length > 8 * 1024 * 1024 || !value.includes("<feed")) throw new Error("GitLab security release feed was invalid or exceeded the response limit.");
-  gitlabReleaseCache = { value, expires: Date.now() + 12 * 60 * 60_000 };
+  gitlabReleaseCache = { value, expires: Date.now() + UPSTREAM_ADVISORY_TTL };
   return value;
 }
 
@@ -542,7 +543,7 @@ async function jenkinsUpdateCenter() {
   });
   if (!response.ok) throw new Error(`Jenkins advisory lookup returned ${response.status}.`);
   const value = await response.json() as JenkinsUpdateCenter;
-  jenkinsUpdateCache = { value, expires: Date.now() + 12 * 60 * 60_000 };
+  jenkinsUpdateCache = { value, expires: Date.now() + UPSTREAM_ADVISORY_TTL };
   return value;
 }
 

@@ -26,8 +26,10 @@ import { discoverZarfPackages, loadRepositorySecurityTree, readRepositoryJson, t
 import { discoverPublishedZarfPackageSboms } from "@/lib/security-zarf-sbom";
 
 const CACHE_VERSION = 1;
-const SECURITY_ANALYSIS_VERSION = 21;
-const SECURITY_TTL = 12 * 60 * 60_000;
+const SECURITY_ANALYSIS_VERSION = 22;
+const SECURITY_TTL = 15 * 60_000;
+const FULL_SECURITY_TTL = 12 * 60 * 60_000;
+const NEGATIVE_INVENTORY_TTL = 12 * 60 * 60_000;
 const INVENTORY_TTL = 7 * 24 * 60 * 60_000;
 const MAX_REPOSITORY_SBOMS = 30;
 
@@ -141,6 +143,7 @@ function applicationArtifacts(packages: ZarfPackage[], repository: string) {
           componentName: component.name,
           chartNames: component.charts.map((chart) => chart.name),
           chartVersions: component.charts.map((chart) => chart.version),
+          chartUrls: component.charts.map((chart) => chart.url),
           image,
         });
         const artifactId = stableSecurityId(repository, packageItem.id, component.id, reference);
@@ -268,6 +271,7 @@ class SecurityRefreshService {
   private store = loadStore();
   private queue: string[] = [];
   private active = new Set<string>();
+  private forced = new Set<string>();
   private maximumConcurrency = 2;
 
   snapshot(repositories: string[], force = false): SecurityWorkspace {
@@ -315,6 +319,7 @@ class SecurityRefreshService {
     if (force) {
       current.stale = true;
       this.store.negativeInventories = {};
+      this.forced.add(key);
     }
     this.queue.push(repository);
     saveStore(this.store);
@@ -341,13 +346,16 @@ class SecurityRefreshService {
   private async refreshRepository(repositoryId: string) {
     const key = repositoryId.toLowerCase();
     const previous = this.store.repositories[key] ?? emptyRepository(repositoryId);
+    const forced = this.forced.delete(key);
+    const analysisChanged = this.store.repositoryAnalysisVersions[key] !== SECURITY_ANALYSIS_VERSION;
     const repository: RepositorySecurity = { ...previous, state: "refreshing", stale: true, error: null, refreshStartedAt: new Date().toISOString(), stages: STAGES.map((stage) => ({ ...stage })) };
     this.checkpoint(repository);
     const now = new Date().toISOString();
     try {
       setStage(repository, "packages", "running");
       const sourceTree = await loadRepositorySecurityTree(repositoryId);
-      const source = sourceTree.revision === previous.revision && previous.packages.length
+      const sourceChanged = sourceTree.revision !== previous.revision;
+      const source = !sourceChanged && previous.packages.length
         ? { ...sourceTree, packages: previous.packages }
         : await discoverZarfPackages(repositoryId, sourceTree);
       repository.revision = source.revision;
@@ -375,6 +383,9 @@ class SecurityRefreshService {
       const normalized = applicationArtifacts(source.packages, repositoryId);
       repository.applications = normalized.applications;
       repository.artifacts = normalized.artifacts;
+      const containerEvidenceTimes = previous.artifacts.map((artifact) => artifact.lastAnalyzedAt ? new Date(artifact.lastAnalyzedAt).getTime() : 0);
+      const containerEvidenceAt = containerEvidenceTimes.length ? Math.min(...containerEvidenceTimes) : previous.analyzedAt ? new Date(previous.analyzedAt).getTime() : 0;
+      const fullContainerRefresh = forced || analysisChanged || sourceChanged || !containerEvidenceAt || Date.now() - containerEvidenceAt > FULL_SECURITY_TTL;
       setStage(repository, "applications", normalized.applications.some((app) => app.confidence === "unknown") ? "limited" : "complete", `${normalized.applications.filter((app) => app.confidence !== "unknown").length} of ${normalized.applications.length} identified`);
       this.checkpoint(repository);
 
@@ -411,6 +422,55 @@ class SecurityRefreshService {
       setStage(repository, "application-advisories", repository.applications.some((application) => application.coverage !== "full") ? "limited" : "complete");
       this.checkpoint(repository);
 
+      if (!fullContainerRefresh) {
+        const previousArtifacts = new Map(previous.artifacts.map((artifact) => [artifact.id, artifact]));
+        const cachedContainerFindings = previous.findings.filter((finding) => finding.category !== "application");
+        const cachedFindingIds = new Set(cachedContainerFindings.map((finding) => finding.id));
+        for (const artifact of repository.artifacts) {
+          const cached = previousArtifacts.get(artifact.id);
+          if (!cached) continue;
+          const applicationCoverage = artifact.securityCoverage.application;
+          const applicationSources = [...artifact.securityCoverage.sources];
+          artifact.digest = cached.digest;
+          artifact.securityCoverage = {
+            ...cached.securityCoverage,
+            application: applicationCoverage,
+            sources: [...new Set([...cached.securityCoverage.sources, ...applicationSources])],
+          };
+          artifact.sbom = { ...cached.sbom };
+          artifact.findingIds = cached.findingIds.filter((id) => cachedFindingIds.has(id));
+          artifact.resolutionError = cached.resolutionError;
+          artifact.lastAnalyzedAt = cached.lastAnalyzedAt;
+        }
+        for (const finding of cachedContainerFindings) {
+          const vulnerability = previous.vulnerabilities[finding.vulnerabilityId];
+          if (vulnerability) mergeVulnerability(vulnerabilities, { ...vulnerability, aliases: [...vulnerability.aliases], references: [...vulnerability.references], providers: [...vulnerability.providers] });
+          findings.push(finding);
+        }
+        setStage(repository, "images", repository.artifacts.some((artifact) => !artifact.digest) ? "limited" : "complete", "Using cached image resolution");
+        setStage(repository, "sboms", repository.artifacts.some((artifact) => !artifact.sbom.available) ? "limited" : "complete", `${repository.artifacts.filter((artifact) => artifact.sbom.available).length} of ${repository.artifacts.length} images have a cached inventory`);
+        setStage(repository, "dependencies", repository.artifacts.some((artifact) => artifact.securityCoverage.container !== "full") ? "limited" : "complete", "Using cached dependency evidence");
+        const normalizedFindings = deduplicateFindings(findings);
+        repository.applications.forEach((application) => { application.findingIds = [...new Set(application.findingIds)]; });
+        repository.vulnerabilities = vulnerabilities;
+        repository.findings = normalizedFindings;
+        repository.counts = countsFor(normalizedFindings);
+        repository.coverage = {
+          applicationsIdentified: repository.applications.filter((application) => application.confidence !== "unknown").length,
+          applicationsTotal: repository.applications.length,
+          containerImages: repository.artifacts.length,
+          fullContainerCoverage: repository.artifacts.filter((artifact) => artifact.securityCoverage.container === "full").length,
+          partialContainerCoverage: repository.artifacts.filter((artifact) => artifact.securityCoverage.container === "partial").length,
+          unavailableContainerCoverage: repository.artifacts.filter((artifact) => artifact.securityCoverage.container === "unavailable").length,
+        };
+        repository.state = "ready";
+        repository.stale = false;
+        repository.analyzedAt = now;
+        this.store.repositoryAnalysisVersions[key] = SECURITY_ANALYSIS_VERSION;
+        this.checkpoint(repository);
+        return;
+      }
+
       setStage(repository, "images", "running");
       setStage(repository, "sboms", "running");
       let repoSbomsPromise: Promise<SecuritySbomDocument[]> | null = null;
@@ -426,7 +486,7 @@ class SecurityRefreshService {
           const cacheKey = inventoryKey(artifact, resolved.digest);
           const cached = this.store.digestInventories[cacheKey];
           const negativeAt = this.store.negativeInventories[cacheKey];
-          const negativeFresh = Boolean(negativeAt && Date.now() - new Date(negativeAt).getTime() < SECURITY_TTL);
+          const negativeFresh = Boolean(negativeAt && Date.now() - new Date(negativeAt).getTime() < NEGATIVE_INVENTORY_TTL);
           let parsed: ParsedSbom | null = cached && Date.now() - new Date(cached.fetchedAt).getTime() < INVENTORY_TTL ? { format: cached.format, packages: cached.packages } : null;
           let sourceName = cached?.source ?? null;
           let associatedDigest = cached?.associatedDigest ?? resolved.digest;
@@ -551,7 +611,7 @@ class SecurityRefreshService {
   }
 }
 
-const SERVICE_IMPLEMENTATION_VERSION = 21;
+const SERVICE_IMPLEMENTATION_VERSION = 22;
 const runtimeState = globalThis as typeof globalThis & { __udsScoutSecurityService?: SecurityRefreshService; __udsScoutSecurityServiceVersion?: number };
 
 export function securityRefreshService() {

@@ -53,15 +53,19 @@ Scout does not replace maintainer judgment or silently mutate repositories. It a
 For every eligible tracked package repository, Scout progressively checks for valid Zarf package definitions by content rather than filename. The SONIC infrastructure/deployment repository is intentionally excluded from Security Intelligence. When package metadata is available, Scout can:
 
 - Keep application findings separate from container dependency findings.
-- Normalize package, component, flavor, image tag, and immutable OCI digest relationships.
-- Identify and group primary applications conservatively from Zarf metadata, charts, image names, and reusable product profiles, while keeping helpers, test fixtures, and utility images as container evidence.
+- Normalize package, component, flavor, image tag, and immutable OCI digest relationships internally without turning package flavors into separate maintainer queues.
+- Identify upstream products conservatively from Zarf metadata, chart URLs, official GHCR ownership, image names, and reusable product profiles, while keeping helpers, test fixtures, and utility images as container evidence.
 - Query OSV, GitHub Global and upstream-repository Security Advisories, NVD for verified application-product CPEs with local affected-range validation, and authoritative vendor feeds such as Jenkins advisories and GitLab patch releases where available.
 - Inspect OCI referrers, GitHub artifact attestations, repository/release assets, published UDS Zarf OCI packages, and the public Defense Unicorns Registry catalog for remotely available SBOMs and vulnerability reports.
 - Parse associated dependency inventories and classify container OS, language, and other findings.
-- Lead with the maintainer decision: affected application version, exposure knowledge, fixed version, matching update pull request, and check state.
-- Show full, partial, unknown, or unavailable coverage independently from finding totals.
+- Lead with Critical and High upstream application decisions: affected version, fixed version, matching update pull request, and check state.
+- Collapse repeated package, image, and flavor occurrences into unique CVE decisions; keep lower-severity and exact-image evidence available as secondary context.
+- Elevate container dependency findings into the default queue only when Scout can correlate a Critical or High CVE with an open update pull request.
+- Show full, partial, unknown, or unavailable visibility independently from finding totals.
 
-Adding or removing a tracked repository requires no repository-specific security configuration. An unfamiliar product may require one reusable Scout product profile or vendor adapter; until then Scout keeps its application identity or advisory-source gap explicit rather than guessing.
+Adding or removing a tracked repository requires no repository-specific security configuration. Scout automatically attempts to establish the upstream from package, chart, registry, and SBOM evidence. An unfamiliar or ambiguous product may still require one reusable Scout product profile or vendor adapter; until then Scout keeps its upstream identity or advisory-source gap explicit rather than guessing.
+
+Authoritative upstream application sources are rechecked every 15 minutes while Scout is running. Expensive container inventory and dependency work remains on a longer cycle and reuses exact-digest evidence, so faster upstream awareness does not repeatedly rescan every image.
 
 Security enrichment runs inside Scout with bounded concurrency and never requires Docker, Syft, Grype, Trivy, CI changes, an external Scout service, or manually uploaded SBOMs. When a registry requires unavailable credentials or no associated remote SBOM exists, Scout says coverage is unavailable instead of reporting zero vulnerabilities. Scout reports known remotely observable posture for maintainers; it does not replace enterprise or runtime security platforms.
 

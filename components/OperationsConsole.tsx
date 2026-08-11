@@ -35,7 +35,7 @@ import { PrimaryActionButton } from "./action-ui";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
 import { OperationsDrawer } from "./OperationsDrawer";
 import { OverviewPage } from "./OverviewPage";
-import { GlobalSecurityPage, RepositorySecurityPanel, RepositoryVersionPanel } from "./SecurityIntelligence";
+import { GlobalSecurityPage, RepositorySecurityPanel } from "./SecurityIntelligence";
 import { filterRenovateUpdatesByCheck, isRenovateCheckFilter, PullRequestCheckStatus, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
 import type { InfrastructureExplorerData } from "./infrastructure-types";
 import type { ConsoleView, DrawerSelection } from "./operations-types";
@@ -329,6 +329,12 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   }, [securityWorkspace?.generatedAt, securityWorkspace?.refreshing]);
 
   useEffect(() => {
+    if (!overview?.viewer.login) return;
+    const timer = window.setInterval(() => setSecurityPollKey((value) => value + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, [overview?.viewer.login]);
+
+  useEffect(() => {
     if (!error) setErrorDismissed(false);
   }, [error]);
 
@@ -552,8 +558,8 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   },
   security: {
     title: "Security intelligence",
-    summary: "Known application and container security context organized by tracked repository.",
-    actions: ["Start with repositories that have Critical or High findings.", "Review coverage before interpreting a zero finding count.", "Open a repository Security tab to connect fixed versions with update pull requests and checks."],
+    summary: "High-impact upstream application advisories with actionable container dependency context.",
+    actions: ["Start with Critical and High upstream application CVEs.", "Use container evidence when Scout correlates it with an image update pull request.", "Review visibility before interpreting an empty result as clear."],
   },
   renovate: {
     title: "Renovate updates",
@@ -1032,11 +1038,13 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, secur
   const securityCoverageIncomplete = Boolean(security && (!security.applications.every((application) => application.coverage === "full") || !security.artifacts.every((artifact) => artifact.securityCoverage.container === "full")));
   const directApplicationFindings = security?.findings.filter((finding) => finding.category === "application") ?? [];
   const directApplicationCves = new Set(directApplicationFindings.map((finding) => finding.vulnerabilityId));
-  const directApplicationCritical = new Set(directApplicationFindings.filter((finding) => finding.severity === "critical").map((finding) => finding.vulnerabilityId)).size;
-  const directApplicationHigh = new Set(directApplicationFindings.filter((finding) => finding.severity === "high").map((finding) => finding.vulnerabilityId)).size;
-  const affectedApplicationVersions = new Set(directApplicationFindings.map((finding) => finding.applicationId).filter(Boolean)).size;
-  const fixedApplicationVersions = [...new Set(directApplicationFindings.map((finding) => finding.fixedVersion).filter(Boolean))];
-  const severeContainerFindings = security?.findings.filter((finding) => finding.category !== "application" && (finding.severity === "critical" || finding.severity === "high")).length ?? 0;
+  const highImpactApplicationFindings = directApplicationFindings.filter((finding) => finding.severity === "critical" || finding.severity === "high");
+  const highImpactApplicationCves = new Set(highImpactApplicationFindings.map((finding) => finding.vulnerabilityId));
+  const directApplicationCritical = new Set(highImpactApplicationFindings.filter((finding) => finding.severity === "critical").map((finding) => finding.vulnerabilityId)).size;
+  const directApplicationHigh = new Set(highImpactApplicationFindings.filter((finding) => finding.severity === "high").map((finding) => finding.vulnerabilityId)).size;
+  const affectedApplicationVersions = new Set(highImpactApplicationFindings.map((finding) => finding.applicationId).filter(Boolean)).size;
+  const fixedApplicationVersions = [...new Set(highImpactApplicationFindings.map((finding) => finding.fixedVersion).filter(Boolean))];
+  const severeContainerCves = new Set(security?.findings.filter((finding) => finding.category !== "application" && (finding.severity === "critical" || finding.severity === "high")).map((finding) => finding.vulnerabilityId) ?? []);
   const relatedResources = (
     <Container header={<Header variant="h2">Related resources</Header>}>
       <SpaceBetween direction="horizontal" size="xs">
@@ -1060,7 +1068,6 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, secur
       <SpaceBetween size="l">
         {pipelineFailed(repository.pipeline?.conclusion) ? <Flashbar items={[{ type: "error", header: "The latest pipeline failed", content: "Review the failed run before merging or releasing additional changes.", action: failedPipelineUrl ? <Button href={failedPipelineUrl} external>View pipeline</Button> : undefined }]} /> : null}
 
-        {securityEligible ? <RepositoryVersionPanel security={security} releases={workspace.releases ?? []} generatedAt={referenceTime} openSecurity={() => setActiveTab("security")} /> : null}
 
         <Grid gridDefinition={[
           { colspan: { default: 12, xs: 6, l: 3 } },
@@ -1073,7 +1080,7 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, secur
           <MetricCard title="Renovate updates" value={renovatePulls.length} description={repository.unassignedRenovatePulls ? `${repository.unassignedRenovatePulls} blocked or policy-elevated updates need manual attention.` : "Routine automated updates are informational."} onDetails={() => openDrawer({ type: "renovate", repository: repository.fullName })} indicator={repository.unassignedRenovatePulls ? { type: "warning", label: "Manual action required" } : undefined} />
           <MetricCard title="Open issues" value={issues.length} description={`${overview.myWork.assignedIssues.filter((issue) => issue.repository === repository.fullName).length} assigned to you; other issues remain repository context.`} onDetails={() => openDrawer({ type: "issues", repository: repository.fullName })} />
           <MetricCard title="Default branch workflow" value={repository.pipeline?.conclusion === "success" ? "Passing" : pipelineFailed(repository.pipeline?.conclusion) ? "Failed" : "Unavailable"} description={repository.attention.reason} onDetails={() => openDrawer({ type: "pipelines", repository: repository.fullName })} attention={pipelineFailed(repository.pipeline?.conclusion)} indicator={pipelineFailed(repository.pipeline?.conclusion) ? { type: "error", label: "Workflow failed" } : repository.pipeline?.conclusion === "success" ? { type: "success", label: "Workflow passing" } : { type: "pending", label: "Workflow status unavailable" }} />
-          {securityEligible ? <MetricCard title="Security context" value={!security || security.state === "queued" || security.state === "refreshing" || security.state === "pending" ? "Analyzing" : security.applicable === false ? "Not applicable" : directApplicationCves.size ? `${directApplicationCves.size} app CVEs` : severeContainerFindings ? `${severeContainerFindings} Critical / High dependencies` : !securityHasCoverage ? "Visibility unavailable" : securityCoverageIncomplete ? "Visibility limited" : "No immediate action"} description={directApplicationCves.size ? `${affectedApplicationVersions} application version${affectedApplicationVersions === 1 ? "" : "s"} affected${fixedApplicationVersions.length ? `; update to ${fixedApplicationVersions.join(" or ")}.` : "; review the vendor advisory."}` : severeContainerFindings ? "Review high-priority dependency findings; routine findings remain secondary." : !securityHasCoverage && security?.applicable ? "Scout could not evaluate application advisories or container dependencies." : securityCoverageIncomplete ? "Some application or container coverage is not established." : security?.applicable ? "No direct application CVEs or Critical / High dependency findings are known." : "Security enriches package health when Zarf metadata is available."} onDetails={() => setActiveTab("security")} attention={Boolean(directApplicationCritical)} warningHighlight={Boolean(!directApplicationCritical && (directApplicationHigh || severeContainerFindings))} indicator={directApplicationCritical ? { type: "error", label: "Critical direct application CVE" } : directApplicationHigh ? { type: "warning", label: "High direct application CVE" } : severeContainerFindings ? { type: "warning", label: "Critical or High dependency finding" } : securityCoverageIncomplete ? { type: "pending", label: securityHasCoverage ? "Security coverage is incomplete" : "Security coverage is unavailable" } : undefined} /> : null}
+          {securityEligible ? <MetricCard title="Security context" value={!security || security.state === "queued" || security.state === "refreshing" || security.state === "pending" ? "Analyzing" : security.applicable === false ? "Not applicable" : highImpactApplicationCves.size ? `${highImpactApplicationCves.size} high-impact app CVE${highImpactApplicationCves.size === 1 ? "" : "s"}` : directApplicationCves.size ? `${directApplicationCves.size} other app ${directApplicationCves.size === 1 ? "advisory" : "advisories"}` : severeContainerCves.size ? `${severeContainerCves.size} high-impact dependency CVE${severeContainerCves.size === 1 ? "" : "s"}` : !securityHasCoverage ? "Visibility unavailable" : securityCoverageIncomplete ? "Visibility limited" : "No immediate action"} description={highImpactApplicationCves.size ? `${affectedApplicationVersions} application version${affectedApplicationVersions === 1 ? "" : "s"} affected${fixedApplicationVersions.length ? `; update to ${fixedApplicationVersions.join(" or ")}.` : "; review the upstream advisory."}` : directApplicationCves.size ? "Review lower-severity upstream application advisories when planning the next package update." : severeContainerCves.size ? "Container dependency context is available; prioritize remediation through normal image update pull requests." : !securityHasCoverage && security?.applicable ? "Scout could not evaluate application advisories or container dependencies." : securityCoverageIncomplete ? "Some application or container visibility is not established." : security?.applicable ? "No high-impact application or dependency CVEs are known." : "Security enriches package health when Zarf metadata is available."} onDetails={() => setActiveTab("security")} attention={Boolean(directApplicationCritical)} warningHighlight={Boolean(!directApplicationCritical && directApplicationHigh)} indicator={directApplicationCritical ? { type: "error", label: "Critical upstream application CVE" } : directApplicationHigh ? { type: "warning", label: "High upstream application CVE" } : securityCoverageIncomplete ? { type: "pending", label: securityHasCoverage ? "Security visibility is incomplete" : "Security visibility is unavailable" } : undefined} /> : null}
         </Grid>
 
         <Tabs
