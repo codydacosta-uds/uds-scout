@@ -28,9 +28,12 @@ tasks:
       - npm install
 
   check:
-    desc: Run lint and production build checks
+    desc: Run lint, policy tests, coverage, restricted-runner, and production build checks
     cmds:
       - npm run lint
+      - npm run test:coverage
+      - npm run coverage:badge
+      - npm run test:runner
       - npm run build
 
   build:

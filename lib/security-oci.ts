@@ -1,6 +1,9 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { lookup } from "node:dns";
+import { isIP, type LookupFunction } from "node:net";
+import { Agent } from "undici";
 import { githubContainerRegistryAuthorization } from "@/lib/github";
 import type { ParsedImageReference } from "@/lib/security-normalization";
 import { defenseRegistryAuthorization } from "@/lib/security-registry-auth";
@@ -40,14 +43,50 @@ type ReferrersResponse = { referrers?: OciDescriptor[]; manifests?: OciDescripto
 type RegistryAuth = { token: string; expiresAt: number };
 const tokenCache = new Map<string, RegistryAuth>();
 
+function privateIpAddress(value: string) {
+  const host = value.replace(/^\[|\]$/g, "").toLowerCase();
+  if (isIP(host) === 4) {
+    const [first, second] = host.split(".").map(Number);
+    return first === 0 || first === 10 || first === 127 || first >= 224
+      || (first === 100 && second >= 64 && second <= 127)
+      || (first === 169 && second === 254)
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168);
+  }
+  if (isIP(host) === 6) {
+    return host === "::" || host === "::1" || host.startsWith("fc") || host.startsWith("fd")
+      || /^fe[89ab]/.test(host) || host.startsWith("::ffff:");
+  }
+  return false;
+}
+
 function assertPublicHttps(value: string, expectedHost?: string) {
   const url = new URL(value);
   if (url.protocol !== "https:") throw new Error("Scout only connects to HTTPS registries.");
   const host = url.hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "0.0.0.0" || host === "::1") throw new Error("Local registry addresses are not inspected.");
-  if (/^(?:10|127|169\.254|192\.168)\./.test(host) || /^172\.(?:1[6-9]|2\d|3[01])\./.test(host)) throw new Error("Private registry addresses are not inspected.");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || privateIpAddress(host)) throw new Error("Local or private registry addresses are not inspected.");
   if (expectedHost && url.host !== expectedHost) throw new Error("Registry request changed hosts unexpectedly.");
   return url;
+}
+
+const publicRegistryLookup: LookupFunction = (hostname, _options, callback) => {
+  lookup(hostname, { all: true, verbatim: true }, (error, addresses) => {
+    if (error) {
+      callback(error, "", 4);
+      return;
+    }
+    if (!addresses.length || addresses.some((address) => privateIpAddress(address.address))) {
+      callback(new Error("Registry DNS resolved to a local or private address."), "", 4);
+      return;
+    }
+    callback(null, addresses[0].address, addresses[0].family);
+  });
+};
+const publicRegistryDispatcher = new Agent({ connect: { lookup: publicRegistryLookup } });
+
+type SecureFetchInit = RequestInit & { dispatcher: Agent };
+function publicRegistryFetch(input: string | URL, init: RequestInit) {
+  return fetch(input, { ...init, dispatcher: publicRegistryDispatcher } as SecureFetchInit);
 }
 
 function bearerChallenge(value: string | null) {
@@ -64,7 +103,7 @@ async function registryToken(challenge: { realm: string; service?: string; scope
   const key = `${realm}:${authorization ? createHash("sha256").update(authorization).digest("hex").slice(0, 12) : "anonymous"}`;
   const cached = tokenCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.token;
-  const response = await fetch(realm, { headers: { "User-Agent": USER_AGENT, ...(authorization ? { Authorization: authorization } : {}) }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
+  const response = await publicRegistryFetch(realm, { headers: { "User-Agent": USER_AGENT, ...(authorization ? { Authorization: authorization } : {}) }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`Registry authentication metadata returned ${response.status}.`);
   const body = await response.json() as { token?: string; access_token?: string; expires_in?: number };
   const token = body.token ?? body.access_token;
@@ -83,7 +122,7 @@ async function registryFetch(image: ParsedImageReference, path: string, accept: 
   const base = assertPublicHttps(`https://${image.registryHost}`);
   const url = new URL(path, base);
   if (url.host !== base.host) throw new Error("Invalid registry path.");
-  const request = async (authorization?: string) => fetch(url, {
+  const request = async (authorization?: string) => publicRegistryFetch(url, {
     headers: { Accept: accept, "User-Agent": USER_AGENT, ...(authorization ? { Authorization: authorization } : {}) },
     cache: "no-store",
     redirect: "manual",
@@ -104,7 +143,7 @@ async function registryFetch(image: ParsedImageReference, path: string, accept: 
       const location = response.headers.get("location");
       if (!location) throw new Error("Registry blob redirect did not include a location.");
       const redirect = assertPublicHttps(new URL(location, redirectBase).toString());
-      response = await fetch(redirect, { headers: { Accept: accept, "User-Agent": USER_AGENT }, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(45_000) });
+      response = await publicRegistryFetch(redirect, { headers: { Accept: accept, "User-Agent": USER_AGENT }, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(45_000) });
       redirectBase = redirect;
       redirectCount += 1;
     }

@@ -21,6 +21,8 @@ ENV NODE_ENV=production \
     UDS_SCOUT_SETTINGS_PATH=/data/settings.json
 
 RUN apk add --no-cache openssh-client \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx \
     && addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 --ingroup nodejs nextjs \
     && mkdir -p /data \

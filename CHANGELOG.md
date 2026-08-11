@@ -6,6 +6,9 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Added
 
+- Added a policy-focused Vitest suite with enforced coverage for Test Lab, GitLab mutation, token-handling, repository-scope, security normalization, SBOM/OCI, Terraform, Renovate, UDS Common, local-settings, and release-note safety boundaries, plus restricted-runner shell checks and desktop/narrow Playwright smoke tests.
+- Added credential-free CI, CodeQL, dependency review, production dependency audit, ShellCheck, Trivy source/secret/configuration and production-image scanning workflows, with commit-pinned actions, Dependabot updates, coverage and workflow badges, and retained failure reports.
+- Added baseline browser security headers covering framing, content-type sniffing, referrer handling, browser capabilities, and opener isolation.
 - Added zero-configuration Security Intelligence for tracked Zarf repositories, with content-based package discovery, application and image normalization, immutable OCI digest resolution, remote SBOM discovery, optional authenticated Defense Unicorns Registry Zarf metadata, batched OSV and GitHub advisory matching, curated NVD application-product CVE coverage, Jenkins and GitLab vendor advisory matching, maintainer-focused application decisions with CVE inspection drawers and directly linked authoritative advisories, explicit per-source coverage, progressive local caching, repository Security tabs, a repository-oriented global view, and explicit exclusion of the SONIC infrastructure/deployment repository.
 - Added reusable security product profiles and a repeatable Security Intelligence enrichment skill for auditing newly selected repositories, validating product coordinates and advisory ranges, and adding vendor coverage without repository-specific CVE rules.
 - Added an optional Defense Unicorns Registry connection to setup and Workspace settings, with server-memory browser credentials, environment-managed status, validation, replacement, and disconnect controls.
@@ -38,6 +41,10 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Fixed
 
+- The production container now removes npm, Corepack, and Yarn after the standalone application is copied, reducing unused tooling and eliminating vulnerabilities inherited only from base-image package managers.
+- Terraform Explorer now hides values for sensitive outputs as well as sensitive variable defaults.
+- OCI inspection now rejects additional private, loopback, link-local, carrier-grade NAT, multicast, and private IPv6 registry addresses and uses a restricted DNS dispatcher so registry and redirect connections cannot resolve to private addresses.
+- Test Lab plan validation now recursively rejects missing, invalid, or cluster-managing nested repository test tasks and requires `test:all` to delegate instead of running direct commands.
 - Security Intelligence now discovers SBOMs from published `uds-packages/*` Zarf OCI releases and public Defense Unicorns Registry scans, reports unevaluated scopes as not established instead of displaying misleading zero-CVE counts, distinguishes mixed repository coverage from fully unavailable coverage, and shows upstream, Registry1, and unicorn coverage separately.
 - Security Intelligence now groups release-coupled product images, excludes test and helper images from application counts, rejects untrusted mirror package versions, validates NVD CPE bounds locally, and honors OSV custom affected ranges to prevent historical or unrelated direct-CVE false positives.
 - Docker startup now waits for Scout to become reachable from the host and prints recent container logs when readiness fails.

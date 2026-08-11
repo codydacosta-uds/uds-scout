@@ -166,11 +166,34 @@ export async function testLabPlan(repository: string, branch: string): Promise<T
   if (testInclude !== "./tasks/test.yaml") blockers.push("The test task include must resolve to ./tasks/test.yaml.");
   if (!testAll) blockers.push("tasks/test.yaml does not define test:all.");
   if (!testActions.length) blockers.push("test:all does not reference any repository tests.");
-  for (const testAction of testActions) {
-    if (!testTasks?.tasks?.some((task) => task.name === testAction)) blockers.push(`test:all references a missing test task: ${testAction}.`);
+  if (testAll?.actions?.some((action) => action.cmd !== undefined)) {
+    blockers.push("test:all must delegate to named repository tests instead of running a direct command.");
   }
-  const testTaskReferences = testTasks?.tasks?.flatMap((task) => task.actions?.flatMap((action) => action.task ? [action.task] : []) ?? []) ?? [];
-  if (testTaskReferences.some((action) => /k3d|setup:k3d/i.test(action))) blockers.push("The repository test suite references cluster setup or K3d.");
+
+  const testTasksByName = new Map((testTasks?.tasks ?? []).flatMap((task) => task.name ? [[task.name, task]] : []));
+  const reachableTestTasks = [...testActions];
+  const visitedTestTasks = new Set<string>();
+  while (reachableTestTasks.length) {
+    const testAction = reachableTestTasks.shift()!;
+    if (!/^[a-zA-Z0-9._-]+$/.test(testAction)) {
+      blockers.push(`test:all references an invalid test task: ${testAction}.`);
+      continue;
+    }
+    if (visitedTestTasks.has(testAction)) continue;
+    visitedTestTasks.add(testAction);
+    const task = testTasksByName.get(testAction);
+    if (!task) {
+      blockers.push(`test:all references a missing test task: ${testAction}.`);
+      continue;
+    }
+    if (/k3d|setup:k3d/i.test(JSON.stringify(task))) {
+      blockers.push("The repository test suite references cluster setup or K3d.");
+    }
+    for (const action of task.actions ?? []) {
+      if (!action.task) continue;
+      reachableTestTasks.push(action.task.replace(/^test:/, ""));
+    }
+  }
 
   if (bundle?.kind !== "UDSBundle") {
     blockers.push("bundle/uds-bundle.yaml is not a UDSBundle.");

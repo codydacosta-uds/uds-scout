@@ -1,5 +1,12 @@
 # UDS Scout
 
+[![CI](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/ci.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/codeql.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/codeql.yml)
+[![Security checks](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/security.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/security.yml)
+[![Container security](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/container-security.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/container-security.yml)
+[![Browser smoke tests](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/e2e.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/e2e.yml)
+[![Policy coverage](./public/coverage.svg)](#validation-and-security-checks)
+
 UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of repositories. It brings review work, dependency updates, issues, pipeline failures, version alignment, infrastructure knowledge, and package-focused security context into one focused interface.
 
 See [CHANGELOG.md](CHANGELOG.md) for released and upcoming user-facing changes.
@@ -288,20 +295,31 @@ Primary routes include:
 
 Credentials are never included in these API responses.
 
-## Validation
+## Validation and security checks
 
-Run the same checks expected before merging or releasing:
+The coverage badge reports line coverage for the explicitly selected policy-critical modules and API boundaries in `vitest.config.mts`; it is not presented as whole-application coverage. CI enforces at least 70% statement, function, and line coverage and 60% branch coverage for that scope. The committed badge is regenerated and checked on every pull request so its score cannot silently become stale.
 
-```bash
-task check
-```
-
-This runs:
+Run the complete local validation set with `task check`, or directly with:
 
 ```bash
 npm run lint
+npm run test:coverage
+npm run coverage:badge
+npm run test:runner
 npm run build
 ```
+
+Use `npm test` for fast unit tests, `npm run test:watch` while developing, and `npm run test:e2e` after installing Chromium with `npx playwright install chromium`.
+
+Credential-free GitHub Actions workflows provide:
+
+- Unit and API-boundary tests covering Test Lab allowlists, exact-SHA plans, fixed workflows and flavors, GitLab project/label/batch enforcement, setup-token non-disclosure, tracked repository scope, SBOM and OCI normalization, Terraform dependency inference, sensitive Terraform values, Renovate parsing, UDS Common parsing, and safe release-note Markdown.
+- CodeQL extended JavaScript/TypeScript analysis.
+- Pull-request dependency review, production `npm audit`, ShellCheck, forced-command runner policy checks, and Trivy source, secret, and configuration scanning.
+- Production image builds followed by High/Critical vulnerability and secret scanning.
+- Chromium smoke tests at desktop and narrow viewports with mocked setup data, including baseline response-header assertions.
+
+CI never receives application API tokens or the Zeus SSH key, never contacts Zeus, and never performs GitLab or GitHub mutations. Workflow permissions are explicit and read-only except for CodeQL's required `security-events: write` result upload. Action dependencies are commit-pinned and updated through Dependabot.
 
 ## Roadmap
 
