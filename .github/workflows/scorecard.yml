@@ -34,6 +34,7 @@ jobs:
         run: |
           archive="scorecard_${SCORECARD_VERSION}_linux_amd64.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 4 --retry-all-errors --retry-delay 3 \
             "https://github.com/ossf/scorecard/releases/download/v${SCORECARD_VERSION}/${archive}" \
             --output scorecard.tar.gz
           echo "${SCORECARD_ARCHIVE_SHA256}  scorecard.tar.gz" | sha256sum --check
