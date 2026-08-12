@@ -156,12 +156,12 @@ The development server uses `127.0.0.1:3001`.
 On first boot:
 
 1. Connect or confirm the required GitHub token.
-2. Optionally connect GitLab and Defense Unicorns Registry credentials.
+2. Optionally connect GitLab.
 3. Select the GitHub repositories Scout should monitor.
 4. If GitLab is connected, select the GitLab projects used for assigned work items and choose an optional default ticket project.
 5. Save the workspace and continue to the dashboard.
 
-GitHub, GitLab, and registry credentials entered in the browser are validated by the server and retained only for the current app process. Registry credentials are sent only to `registry.defenseunicorns.com`, are never returned in setup status, and can be replaced or disconnected from Workspace settings. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Non-secret selections are stored with local-user permissions at:
+GitHub and GitLab credentials entered during setup are validated by the server and retained only for the current app process. Optional Defense Unicorns Registry credentials are managed after setup from **Workspace settings → Connections**; they are sent only to `registry.defenseunicorns.com`, are never returned in setup status, and can be replaced or disconnected there. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Non-secret selections are stored with local-user permissions at:
 
 ```text
 ~/.config/uds-scout/settings.json

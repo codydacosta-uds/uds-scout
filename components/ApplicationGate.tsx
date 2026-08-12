@@ -793,7 +793,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
             <SpaceBetween size="l">
             {githubConnection}
             {gitlabConnection}
-            {registryConnection}
             <div className="setup-step-actions">
               <PrimaryActionButton disabled={!tokenReady} onClick={continueToRepositories}>Continue to GitHub repositories</PrimaryActionButton>
             </div>
