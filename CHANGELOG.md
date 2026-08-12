@@ -38,6 +38,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - Consolidated repeated primary-button and success-banner patterns so equivalent actions behave consistently across settings, setup, drawers, ticket creation, and Test Lab.
 - Quick pipeline re-run acknowledgements now appear as temporary lower-right notifications that fade away without shifting drawer content.
 - CodeQL and dependency review now remain skipped unless the `GHAS_ENABLED` repository variable explicitly confirms that GitHub Advanced Security is available.
+- Infrastructure Explorer navigation, page content, and API access now require the SONIC repository to be selected in the current workspace.
 - Removed private Defense Unicorns Registry credential collection and authenticated package lookups; Security Intelligence retains the public Registry scan metadata currently supplying package SBOM and vulnerability evidence.
 - Standardized optional explanations on the AWS-style **Info** link and popover, reducing always-visible setup and overview copy.
 - Simplified the full Renovate page hierarchy by removing the redundant nested review heading.

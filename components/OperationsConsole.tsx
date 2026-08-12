@@ -126,6 +126,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const [helpOpen, setHelpOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerSelection | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const sonicAvailable = overview?.capabilities.sonic;
   const openDrawer = (selection: DrawerSelection) => {
     setDrawer(selection);
     setDetailsOpen(true);
@@ -277,7 +278,12 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   }, [view, repositoryName, refreshKey]);
 
   useEffect(() => {
-    if (view !== "infrastructure") return;
+    if (view !== "infrastructure" || sonicAvailable === undefined) return;
+    if (!sonicAvailable) {
+      setInfrastructure(null);
+      setInfrastructureLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setInfrastructureLoading(true);
     fetch(`/api/github/infrastructure?refresh=${refreshKey}`, { signal: controller.signal })
@@ -295,7 +301,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       })
       .finally(() => setInfrastructureLoading(false));
     return () => controller.abort();
-  }, [view, refreshKey]);
+  }, [view, refreshKey, sonicAvailable]);
 
   useEffect(() => {
     if (!overview?.viewer.login) return;
@@ -453,11 +459,13 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   } else if (view === "uds-packages") {
     content = <UdsPackagesCatalogPage overview={overview} catalog={repositoryCatalog} contributorCounts={repositoryContributorCounts} loading={repositoryCatalogLoading} contributorsLoading={repositoryContributorsLoading} error={repositoryCatalogError} contributorsError={repositoryContributorsError} />;
   } else if (view === "infrastructure") {
-    content = infrastructureLoading && !infrastructure
-      ? <Box textAlign="center" padding={{ vertical: "xxxl" }}><SpaceBetween size="m"><Spinner size="large" /><Box color="text-body-secondary">Analyzing Terraform configuration and relationships…</Box></SpaceBetween></Box>
-      : infrastructure
-        ? <InfrastructureExplorer data={infrastructure} onSelect={(node) => openDrawer({ type: "infrastructure-node", node })} />
-        : <EmptyState title="Infrastructure analysis is unavailable" detail="Confirm the Terraform source is available and try again." />;
+    content = !overview.capabilities.sonic
+      ? <Container><EmptyState title="Infrastructure Explorer is unavailable" detail="Select nswccd-devsecops/sonic-swf-iac in Workspace settings to access SONIC infrastructure knowledge." /><Box textAlign="center"><PrimaryActionButton onClick={() => router.push("/settings/repositories")}>Manage GitHub repositories</PrimaryActionButton></Box></Container>
+      : infrastructureLoading && !infrastructure
+        ? <Box textAlign="center" padding={{ vertical: "xxxl" }}><SpaceBetween size="m"><Spinner size="large" /><Box color="text-body-secondary">Analyzing Terraform configuration and relationships…</Box></SpaceBetween></Box>
+        : infrastructure
+          ? <InfrastructureExplorer data={infrastructure} onSelect={(node) => openDrawer({ type: "infrastructure-node", node })} />
+          : <EmptyState title="Infrastructure analysis is unavailable" detail="Confirm the SONIC Terraform source is available and try again." />;
   } else {
     const repositoryOverview = overview.repositories.find((item) => item.fullName === repositoryName);
     const workspaceMatchesRepository = Boolean(workspace && workspace.repository.fullName.toLowerCase() === repositoryName?.toLowerCase());
