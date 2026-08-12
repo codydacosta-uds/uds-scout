@@ -57,11 +57,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [connectedViewer, setConnectedViewer] = useState<SetupViewer | null>(status.viewer);
   const [token, setToken] = useState("");
   const [gitlabToken, setGitlabToken] = useState("");
-  const [registryUsername, setRegistryUsername] = useState("");
-  const [registryPassword, setRegistryPassword] = useState("");
-  const [registryReady, setRegistryReady] = useState(status.registry.connected);
-  const [registryCredentialSource, setRegistryCredentialSource] = useState(status.registry.credentialSource);
-  const [registryConnecting, setRegistryConnecting] = useState(false);
   const [gitlabTokenReady, setGitlabTokenReady] = useState(status.gitlab.hasToken);
   const [gitlabTokenSource, setGitlabTokenSource] = useState(status.gitlab.tokenSource);
   const [connectedGitlabViewer, setConnectedGitlabViewer] = useState<SetupGitlabViewer | null>(status.gitlab.viewer);
@@ -85,7 +80,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [rerunSetupConfirmVisible, setRerunSetupConfirmVisible] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [settingsTab, setSettingsTab] = useState(initialSettingsTab);
-  const [disconnectTarget, setDisconnectTarget] = useState<"github" | "gitlab" | "registry" | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<"github" | "gitlab" | null>(null);
   const [disconnectConfirmation, setDisconnectConfirmation] = useState("");
   const [repositoriesLoading, setRepositoriesLoading] = useState(startsAtRepositories);
   const [repositoriesLoaded, setRepositoriesLoaded] = useState(false);
@@ -228,24 +223,13 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         body: JSON.stringify({ provider }),
       });
       const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error ?? `${provider === "github" ? "GitHub" : provider === "gitlab" ? "Gitlab" : "Defense Unicorns Registry"} could not be disconnected.`);
+      if (!response.ok) throw new Error(data.error ?? `${provider === "github" ? "GitHub" : "Gitlab"} could not be disconnected.`);
       setDisconnectTarget(null);
       setDisconnectConfirmation("");
       if (provider === "github") {
         cachedSetupStatus = null;
         onReset();
         router.replace("/setup");
-        return;
-      }
-      if (provider === "registry") {
-        setRegistryReady(false);
-        setRegistryCredentialSource(null);
-        setRegistryUsername("");
-        setRegistryPassword("");
-        const nextStatus = { ...status, registry: { connected: false, credentialSource: null, environmentAvailable: false } };
-        cachedSetupStatus = nextStatus;
-        onComplete(nextStatus);
-        setActionConfirmation({ header: "Registry disconnected", content: "Scout will no longer use browser-entered Defense Unicorns Registry credentials." });
         return;
       }
       setGitlabTokenReady(false);
@@ -298,34 +282,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
     }
   };
 
-  const connectRegistry = async () => {
-    if (!registryUsername.trim() || !registryPassword) return;
-    setRegistryConnecting(true);
-    setError(null);
-    setActionConfirmation(null);
-    try {
-      const response = await fetch("/api/setup/registry/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: registryUsername, password: registryPassword }),
-      });
-      const data = await response.json() as { connected?: boolean; source?: "session"; host?: string; error?: string };
-      if (!response.ok || !data.connected) throw new Error(data.error ?? "Defense Unicorns Registry could not be connected.");
-      setRegistryUsername("");
-      setRegistryPassword("");
-      setRegistryReady(true);
-      setRegistryCredentialSource("session");
-      const nextStatus = { ...status, registry: { connected: true, credentialSource: "session" as const, environmentAvailable: status.registry.environmentAvailable } };
-      cachedSetupStatus = nextStatus;
-      onComplete(nextStatus);
-      setActionConfirmation({ header: "Registry connection updated", content: "Scout can now inspect authorized private Defense Unicorns Zarf package metadata and SBOMs." });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Defense Unicorns Registry could not be connected.");
-    } finally {
-      setRegistryConnecting(false);
-    }
-  };
-
   const save = async () => {
     setLoading(true);
     setError(null);
@@ -361,11 +317,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         viewer: connectedViewer ?? status.viewer,
         renovateReviewDay: data.renovateReviewDay ?? status.renovateReviewDay,
         workspacePresets: data.workspacePresets ?? status.workspacePresets,
-        registry: {
-          connected: registryReady,
-          credentialSource: registryCredentialSource,
-          environmentAvailable: status.registry.environmentAvailable,
-        },
         gitlab: {
           hasToken: gitlabTokenReady,
           tokenSource: gitlabTokenSource,
@@ -627,37 +578,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
     </Container>
   );
 
-  const registryConnection = (
-    <Container header={<Header variant="h2" description="Optional" info={<InfoPopover header="Defense Unicorns Registry connection"><SpaceBetween size="s"><Box>This connection lets Security Intelligence inspect authorized private Zarf package metadata and SBOMs from <Box variant="code" display="inline">registry.defenseunicorns.com</Box>.</Box><Box color="text-body-secondary">Public security sources continue to work without it. Browser-entered credentials stay only in server memory for this app session. For unattended Docker startup, provide the documented server environment variables instead.</Box></SpaceBetween></InfoPopover>}>Connect Defense Unicorns Registry</Header>}>
-      <SpaceBetween size="m">
-        {registryReady ? (
-          <div className="setup-github-profile">
-            <div className="setup-service-avatar" aria-hidden="true">DU</div>
-            <div className="setup-github-profile-copy">
-              <Box variant="h3">Defense Unicorns Registry</Box>
-              <Box color="text-body-secondary">registry.defenseunicorns.com</Box>
-            </div>
-            <StatusIndicator type="success">{registryCredentialSource === "environment" ? "Configured by server" : "Connected"}</StatusIndicator>
-          </div>
-        ) : <Box color="text-body-secondary">Connect only when your selected packages require private Defense Unicorns Registry access.</Box>}
-        {registryCredentialSource !== "environment" ? (
-          <>
-            <FormField label={registryReady ? "Replacement registry username" : "Registry username"}>
-              <Input value={registryUsername} autoComplete="off" placeholder="Registry username" onChange={({ detail }) => setRegistryUsername(detail.value)} />
-            </FormField>
-            <FormField label={registryReady ? "Replacement password or pull token" : "Password or pull token"}>
-              <Input value={registryPassword} type="password" autoComplete="off" placeholder="Password or pull token" onChange={({ detail }) => setRegistryPassword(detail.value)} onKeyDown={({ detail }) => { if (detail.key === "Enter") void connectRegistry(); }} />
-            </FormField>
-            <SpaceBetween direction="horizontal" size="s">
-              <PrimaryActionButton loading={registryConnecting} disabled={!registryUsername.trim() || !registryPassword} onClick={() => void connectRegistry()}>{registryReady ? "Replace registry connection" : "Connect registry"}</PrimaryActionButton>
-              {registryReady && settingsMode ? <Button onClick={() => { setDisconnectConfirmation(""); setDisconnectTarget("registry"); }}>Disconnect registry</Button> : null}
-            </SpaceBetween>
-          </>
-        ) : null}
-      </SpaceBetween>
-    </Container>
-  );
-
   const gitlabProjectSettings = gitlabTokenReady ? (
     <Container header={<Header variant="h2" description={step === "gitlab-projects" ? "Step 3 of 3 · Choose zero or more projects for assigned work items." : "Choose zero or more projects for assigned work items. Ticket batches can target one selected, validated project at a time."} actions={step === "gitlab-projects" ? <SpaceBetween direction="horizontal" size="s"><Button onClick={() => setStep("repositories")}>Back</Button><SaveButton loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save and continue</SaveButton></SpaceBetween> : settingsMode ? <SaveButton loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save changes</SaveButton> : undefined}>{step === "gitlab-projects" ? "Choose Gitlab projects" : "Gitlab projects"}</Header>}>
       <SpaceBetween size="m">
@@ -820,7 +740,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                       <SpaceBetween size="xs"><Box variant="h3">GitHub repositories</Box><Box color="text-body-secondary">{selectedNames.size} repositories are managed by Scout.</Box><div><Button onClick={() => setSettingsTab("github")}>Manage GitHub repositories</Button></div></SpaceBetween>
                       <SpaceBetween size="xs"><Box variant="h3">Quick select groups</Box><Box color="text-body-secondary">{workspacePresets.length} {workspacePresets.length === 1 ? "group is" : "groups are"} available for repository selection.</Box><div><Button disabled={repositoriesLoading} onClick={() => setPresetManagerVisible(true)}>Manage quick select groups</Button></div></SpaceBetween>
                       <SpaceBetween size="xs"><Box variant="h3">Gitlab projects</Box><Box color="text-body-secondary">{gitlabTokenReady ? `${selectedGitlabProjects.size} projects are selected for Gitlab work items.` : "Gitlab is not connected."}</Box><div><Button onClick={() => setSettingsTab(gitlabTokenReady ? "gitlab" : "connections")}>{gitlabTokenReady ? "Manage Gitlab projects" : "Connect Gitlab"}</Button></div></SpaceBetween>
-                      <SpaceBetween size="xs"><Box variant="h3">Connections</Box><Box color="text-body-secondary">Manage server-only GitHub, Gitlab, and private registry credentials.</Box><div><Button onClick={() => setSettingsTab("connections")}>Manage connections</Button></div></SpaceBetween>
+                      <SpaceBetween size="xs"><Box variant="h3">Connections</Box><Box color="text-body-secondary">Manage server-only GitHub and Gitlab credentials.</Box><div><Button onClick={() => setSettingsTab("connections")}>Manage connections</Button></div></SpaceBetween>
                     </SpaceBetween>
                   </Container>
                   <Container header={<Header variant="h2" description="Choose one browser-local weekday, or hide the scheduled table." actions={<SaveButton loading={renovateReviewSaving} disabled={renovateReviewDay === status.renovateReviewDay} onClick={saveRenovateReviewSchedule}>Save schedule</SaveButton>}>Renovate review</Header>}>
@@ -830,7 +750,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                   </Container>
                 </SpaceBetween>
               ) : null}
-              {settingsTab === "connections" ? <SpaceBetween size="l">{githubConnection}{gitlabConnection}{registryConnection}</SpaceBetween> : null}
+              {settingsTab === "connections" ? <SpaceBetween size="l">{githubConnection}{gitlabConnection}</SpaceBetween> : null}
               {settingsTab === "gitlab" ? (gitlabProjectSettings ?? <Container header={<Header variant="h2">Gitlab projects</Header>}><SpaceBetween size="m"><Box color="text-body-secondary">Connect Gitlab before choosing projects for work items and ticket creation.</Box><div><Button onClick={() => setSettingsTab("connections")}>Open connections</Button></div></SpaceBetween></Container>) : null}
               {settingsTab === "github" ? <SpaceBetween size="l">
               <Table
@@ -980,14 +900,14 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         header="Reset UDS Scout setup?"
         footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={resetting} onClick={() => setResetConfirmVisible(false)}>Cancel</Button><PrimaryActionButton loading={resetting} onClick={resetSetup}>Reset setup</PrimaryActionButton></SpaceBetween></Box>}
       >
-        Saved repository and Gitlab project selections for this GitHub user will be removed. Quick select groups and the Renovate review schedule will be kept. GitHub, Gitlab, and registry credentials entered during this app session will also be cleared. Environment credentials are not changed.
+        Saved repository and Gitlab project selections for this GitHub user will be removed. Quick select groups and the Renovate review schedule will be kept. GitHub and Gitlab credentials entered during this app session will also be cleared. Environment credentials are not changed.
       </Modal>
       <Modal
         visible={disconnectTarget !== null}
         onDismiss={() => { if (!disconnecting) { setDisconnectTarget(null); setDisconnectConfirmation(""); } }}
         closeAriaLabel="Close disconnect confirmation"
-        header={disconnectTarget === "github" ? "Disconnect GitHub?" : disconnectTarget === "gitlab" ? "Use Scout without Gitlab?" : "Disconnect Defense Unicorns Registry?"}
-        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={disconnecting} onClick={() => { setDisconnectTarget(null); setDisconnectConfirmation(""); }}>Cancel</Button><PrimaryActionButton loading={disconnecting} disabled={disconnectTarget === "github" && disconnectConfirmation.trim() !== "disconnect from uds scout"} onClick={disconnectAccount}>{disconnectTarget === "github" ? "Disconnect GitHub" : disconnectTarget === "gitlab" ? "Use without Gitlab" : "Disconnect registry"}</PrimaryActionButton></SpaceBetween></Box>}
+        header={disconnectTarget === "github" ? "Disconnect GitHub?" : "Use Scout without Gitlab?"}
+        footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button disabled={disconnecting} onClick={() => { setDisconnectTarget(null); setDisconnectConfirmation(""); }}>Cancel</Button><PrimaryActionButton loading={disconnecting} disabled={disconnectTarget === "github" && disconnectConfirmation.trim() !== "disconnect from uds scout"} onClick={disconnectAccount}>{disconnectTarget === "github" ? "Disconnect GitHub" : "Use without Gitlab"}</PrimaryActionButton></SpaceBetween></Box>}
       >
         {disconnectTarget === "github" ? (
           <SpaceBetween size="m">
@@ -996,7 +916,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
               <Input value={disconnectConfirmation} autoComplete="off" placeholder="disconnect from uds scout" onChange={({ detail }) => setDisconnectConfirmation(detail.value)} />
             </FormField>
           </SpaceBetween>
-        ) : disconnectTarget === "gitlab" ? <SpaceBetween size="s"><Box>Gitlab features and saved Gitlab project selections will be disabled, but your GitHub workspace will remain connected.</Box>{gitlabTokenSource === "environment" || status.gitlab.environmentAvailable ? <Box color="text-body-secondary">The environment token remains on the server, but Scout will ignore it for this workspace until you choose to reconnect.</Box> : null}</SpaceBetween> : <SpaceBetween size="s"><Box>Scout will stop using the browser-entered registry credentials. Public security sources remain available.</Box><Box color="text-body-secondary">Previously retrieved non-secret security evidence may remain in Scout&apos;s local cache until it expires or is refreshed.</Box></SpaceBetween>}
+        ) : <SpaceBetween size="s"><Box>Gitlab features and saved Gitlab project selections will be disabled, but your GitHub workspace will remain connected.</Box>{gitlabTokenSource === "environment" || status.gitlab.environmentAvailable ? <Box color="text-body-secondary">The environment token remains on the server, but Scout will ignore it for this workspace until you choose to reconnect.</Box> : null}</SpaceBetween>}
       </Modal>
     </>
   );

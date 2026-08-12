@@ -4,7 +4,6 @@ import type { ZarfPackage } from "@/components/security-types";
 import { githubRequest } from "@/lib/github";
 import { parseImageReference } from "@/lib/security-normalization";
 import { discoverPublishedZarfSboms } from "@/lib/security-oci";
-import { defenseRegistryCredentialStatus } from "@/lib/security-registry-auth";
 import { parseSbom, sbomAssociationText } from "@/lib/security-sbom";
 import type { SecuritySbomDocument } from "@/lib/security-sbom-resolvers";
 
@@ -40,19 +39,7 @@ class UdsPackagesPublishedZarfResolver implements PublishedZarfLocationResolver 
   }
 }
 
-class DefenseUnicornsPrivateZarfResolver implements PublishedZarfLocationResolver {
-  async locations(repository: string) {
-    if (!defenseRegistryCredentialStatus().configured) return [];
-    const { name, tags } = await latestUdsPackageReleases(repository);
-    if (!name) return [];
-    return ["registry1", "unicorn"].flatMap((flavor) => {
-      const tag = tags.get(flavor);
-      return tag ? [`registry.defenseunicorns.com/navy-sonic/${name}:${tag}`] : [];
-    });
-  }
-}
-
-const LOCATION_RESOLVERS: PublishedZarfLocationResolver[] = [new UdsCorePublishedZarfResolver(), new UdsPackagesPublishedZarfResolver(), new DefenseUnicornsPrivateZarfResolver()];
+const LOCATION_RESOLVERS: PublishedZarfLocationResolver[] = [new UdsCorePublishedZarfResolver(), new UdsPackagesPublishedZarfResolver()];
 
 export async function discoverPublishedZarfPackageSboms(repository: string, packages: ZarfPackage[]): Promise<SecuritySbomDocument[]> {
   const resolvedLocations = await Promise.all(LOCATION_RESOLVERS.map((resolver) => resolver.locations(repository, packages)));

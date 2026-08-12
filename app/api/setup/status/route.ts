@@ -4,7 +4,6 @@ import { gitlabAbsoluteUrl, gitlabRequest, gitlabTokenStatus, type GitlabViewer 
 import { readLocalSettings } from "@/lib/local-settings";
 import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
 import { workspacePresetsWithConfig } from "@/lib/repository-constants";
-import { defenseRegistryCredentialStatus } from "@/lib/security-registry-auth";
 import { configuredRepositorySource } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
@@ -24,7 +23,6 @@ export async function GET() {
     ? await gitlabRequest<GitlabViewer>("/user", 5 * 60_000).catch(() => null)
     : null;
   const configured = token.configured && Boolean(viewer) && repositories.setupCompleted;
-  const registryCredentials = defenseRegistryCredentialStatus();
 
   return NextResponse.json({
     configured,
@@ -35,11 +33,6 @@ export async function GET() {
     viewer: viewer ? { login: viewer.login, name: viewer.name, avatar: viewer.avatar_url, url: viewer.html_url } : null,
     renovateReviewDay: settings?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY,
     workspacePresets: workspacePresetsWithConfig(settings?.workspacePresets),
-    registry: {
-      connected: registryCredentials.configured,
-      credentialSource: registryCredentials.source,
-      environmentAvailable: registryCredentials.source === "environment",
-    },
     gitlab: {
       hasToken: gitlabEnabled && gitlabToken.configured && Boolean(gitlabViewer),
       tokenSource: gitlabEnabled ? gitlabToken.source : null,

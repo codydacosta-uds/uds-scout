@@ -6,7 +6,6 @@ import { isIP, type LookupFunction } from "node:net";
 import { Agent } from "undici";
 import { githubContainerRegistryAuthorization } from "@/lib/github";
 import type { ParsedImageReference } from "@/lib/security-normalization";
-import { defenseRegistryAuthorization } from "@/lib/security-registry-auth";
 
 const MANIFEST_ACCEPT = [
   "application/vnd.oci.image.index.v1+json",
@@ -114,7 +113,6 @@ async function registryToken(challenge: { realm: string; service?: string; scope
 
 function registryAuthorization(image: ParsedImageReference) {
   if (image.registryHost === "ghcr.io") return githubContainerRegistryAuthorization();
-  if (image.registryHost === "registry.defenseunicorns.com") return defenseRegistryAuthorization();
   return undefined;
 }
 

@@ -115,6 +115,7 @@ The top navigation keeps a browser-local countdown labeled `Next SONIC maintenan
 - Bind local servers to `127.0.0.1`; development uses port `3001`
 - Docker may bind to `0.0.0.0` inside the container only when the documented host publish remains `127.0.0.1:3001:3001`
 - Supply tokens to containers only at runtime, never through image build arguments or committed files; persist non-secret workspace settings under `/data`
+- Security Intelligence may use public Defense Unicorns Registry scan metadata but must not request, store, or accept private-registry credentials.
 - GitLab remains optional when `GITLAB_TOKEN` is present. A workspace-level opt-out may ignore the environment token and must clear selected GitLab projects without mutating the server environment.
 - Keep custom CSS focused on theme tokens, layout refinements, and attention states
 

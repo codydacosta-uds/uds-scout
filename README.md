@@ -161,7 +161,7 @@ On first boot:
 4. If GitLab is connected, select the GitLab projects used for assigned work items and choose an optional default ticket project.
 5. Save the workspace and continue to the dashboard.
 
-GitHub and GitLab credentials entered during setup are validated by the server and retained only for the current app process. Optional Defense Unicorns Registry credentials are managed after setup from **Workspace settings → Connections**; they are sent only to `registry.defenseunicorns.com`, are never returned in setup status, and can be replaced or disconnected there. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Non-secret selections are stored with local-user permissions at:
+GitHub and GitLab credentials entered during setup are validated by the server and retained only for the current app process. GitLab remains optional even when `GITLAB_TOKEN` is present: setup and Workspace settings can disable GitLab for the current GitHub workspace without removing the server environment variable. Security Intelligence uses public Defense Unicorns Registry metadata and does not request or store private-registry credentials. Non-secret selections are stored with local-user permissions at:
 
 ```text
 ~/.config/uds-scout/settings.json
@@ -188,8 +188,6 @@ You can also copy `.env.local.example` to `.env.local`. Never commit `.env.local
 | --- | --- | --- |
 | `GITHUB_TOKEN` | Yes, unless entered during setup | Server-only GitHub API token |
 | `GH_TOKEN` | No | Fallback GitHub token name |
-| `UDS_SCOUT_DEFENSE_REGISTRY_USERNAME` | No | Server-only `registry.defenseunicorns.com` username for read-only private Zarf metadata |
-| `UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD` | No | Server-only registry password or pull token; sent only to the exact `registry.defenseunicorns.com` host |
 | `NVD_API_KEY` | No | Optional server-only NVD API key for faster application-product advisory refreshes; the rate-limited public API works without it |
 | `GITLAB_TOKEN` | No | Server-only GitLab API token |
 | `GITLAB_URL` | No | GitLab origin; defaults to `https://gitlab.sonic.mil` |
@@ -208,17 +206,6 @@ Clone the repository once, then build and start Scout:
 ```bash
 git clone https://github.com/codydacosta-uds/d2d-operations.git
 cd d2d-operations
-task docker:start
-```
-
-To inspect private packages at `registry.defenseunicorns.com`, create a protected runtime environment file before starting:
-
-```bash
-cat > .env.local <<'EOF'
-UDS_SCOUT_DEFENSE_REGISTRY_USERNAME=your_registry_username
-UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD=your_registry_password_or_pull_token
-EOF
-chmod 600 .env.local
 task docker:start
 ```
 
@@ -281,7 +268,6 @@ Primary routes include:
 - `GET /api/setup/status` — connection and local workspace readiness
 - `POST /api/setup/connect` — validate a session GitHub token
 - `POST /api/setup/gitlab/connect` — validate a session GitLab token
-- `POST /api/setup/registry/connect` — validate session-only Defense Unicorns Registry credentials
 - `GET|POST /api/setup/repositories` — list GitHub repositories and save workspace selections
 - `GET /api/setup/gitlab/projects` — list or validate accessible GitLab projects
 - `GET /api/github/overview` — aggregated GitHub operational dashboard

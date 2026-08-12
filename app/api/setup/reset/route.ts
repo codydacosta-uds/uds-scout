@@ -3,7 +3,6 @@ import { clearSessionGitHubToken, githubRequest, githubTokenStatus } from "@/lib
 import { clearSessionGitlabToken } from "@/lib/gitlab";
 import { resetLocalSettings } from "@/lib/local-settings";
 import { clearSecurityRegistryTokenCache } from "@/lib/security-oci";
-import { clearSessionDefenseRegistryCredentials } from "@/lib/security-registry-auth";
 
 export const runtime = "nodejs";
 
@@ -30,11 +29,10 @@ export async function POST(request: NextRequest) {
   resetLocalSettings(viewer?.login);
   clearSessionGitHubToken();
   clearSessionGitlabToken();
-  clearSessionDefenseRegistryCredentials();
   clearSecurityRegistryTokenCache();
 
   return NextResponse.json({
     reset: true,
-    environmentTokensRemain: Boolean(process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? process.env.GITLAB_TOKEN ?? process.env.UDS_SCOUT_DEFENSE_REGISTRY_USERNAME ?? process.env.UDS_SCOUT_CGR_USERNAME),
+    environmentTokensRemain: Boolean(process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? process.env.GITLAB_TOKEN),
   });
 }

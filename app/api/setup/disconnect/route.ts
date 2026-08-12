@@ -3,14 +3,11 @@ import { clearSessionGitHubToken, currentGitHubViewer, githubRequest, githubToke
 import { clearSessionGitlabToken, gitlabTokenStatus } from "@/lib/gitlab";
 import { readLocalSettings, writeLocalSettings } from "@/lib/local-settings";
 import { clearSecurityRegistryTokenCache } from "@/lib/security-oci";
-import { clearSessionDefenseRegistryCredentials, defenseRegistryCredentialStatus } from "@/lib/security-registry-auth";
-import { securityRefreshService } from "@/lib/security-service";
-import { trackedRepositories } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
 
 type GitHubViewer = { login: string };
-type Provider = "github" | "gitlab" | "registry";
+type Provider = "github" | "gitlab";
 
 function sameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
@@ -34,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null) as { provider?: unknown } | null;
   const provider = body?.provider as Provider | undefined;
-  if (provider !== "github" && provider !== "gitlab" && provider !== "registry") {
+  if (provider !== "github" && provider !== "gitlab") {
     return NextResponse.json({ error: "Choose a supported account to disconnect." }, { status: 400 });
   }
 
@@ -45,20 +42,8 @@ export async function POST(request: NextRequest) {
     }
     clearSessionGitHubToken();
     clearSessionGitlabToken();
-    clearSessionDefenseRegistryCredentials();
     clearSecurityRegistryTokenCache();
     return NextResponse.json({ disconnected: "github" });
-  }
-
-  if (provider === "registry") {
-    const status = defenseRegistryCredentialStatus();
-    if (status.source === "environment") {
-      return NextResponse.json({ error: "Defense Unicorns Registry credentials are configured by the server environment. Remove them and restart Scout to disconnect." }, { status: 409 });
-    }
-    clearSessionDefenseRegistryCredentials();
-    clearSecurityRegistryTokenCache();
-    securityRefreshService().snapshot(trackedRepositories(), true);
-    return NextResponse.json({ disconnected: "registry", environmentAvailable: false });
   }
 
   const status = gitlabTokenStatus();

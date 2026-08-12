@@ -9,7 +9,6 @@ const setupStatus = {
   viewer: null,
   renovateReviewDay: "friday",
   workspacePresets: [],
-  registry: { connected: false, credentialSource: null, environmentAvailable: false },
   gitlab: { hasToken: false, tokenSource: null, environmentAvailable: false, viewer: null, projects: [], defaultProject: null },
 };
 

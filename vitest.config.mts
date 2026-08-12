@@ -19,7 +19,6 @@ export default defineConfig({
         "app/api/gitlab/tickets/route.ts",
         "app/api/security/route.ts",
         "app/api/setup/connect/route.ts",
-        "app/api/setup/registry/connect/route.ts",
         "app/api/test-lab/route.ts",
         "components/ReleaseNotes.tsx",
         "lib/local-settings.ts",

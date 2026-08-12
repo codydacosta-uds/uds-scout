@@ -67,7 +67,7 @@ tasks:
         --publish 127.0.0.1:{{.PORT | default "3001"}}:3001
         --mount source={{.DOCKER_VOLUME}},target=/data
         $(if [ -f .env.local ]; then printf '%s' '--env-file .env.local'; fi)
-        $(for variable in GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN GITLAB_URL UDS_SCOUT_DEFENSE_REGISTRY_USERNAME UDS_SCOUT_DEFENSE_REGISTRY_PASSWORD NVD_API_KEY GITHUB_REPOSITORIES; do eval "value=\${$variable:-}"; if [ -n "$value" ]; then printf ' --env %s' "$variable"; fi; done)
+        $(for variable in GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN GITLAB_URL NVD_API_KEY GITHUB_REPOSITORIES; do eval "value=\${$variable:-}"; if [ -n "$value" ]; then printf ' --env %s' "$variable"; fi; done)
         {{.DOCKER_IMAGE}}
       - |
         attempts=0
