@@ -19,6 +19,7 @@ test.beforeEach(async ({ page }) => {
 test("shows the local-first setup without exposing a credential", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Welcome to UDS Scout" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open UDS Scout repository on GitHub" })).toHaveAttribute("href", "https://github.com/codydacosta-uds/uds-scout");
   await page.getByRole("button", { name: "Set up UDS Scout" }).click();
   await expect(page.getByRole("heading", { name: "Connect GitHub", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Connect Defense Unicorns Registry" })).toHaveCount(0);

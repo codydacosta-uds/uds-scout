@@ -24,7 +24,7 @@ import TextFilter from "@cloudscape-design/components/text-filter";
 import TopNavigation from "@cloudscape-design/components/top-navigation";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import type { WorkspacePreset } from "@/lib/repository-constants";
+import { UDS_SCOUT_REPOSITORY_URL, type WorkspacePreset } from "@/lib/repository-constants";
 import { RENOVATE_REVIEW_DAYS, type RenovateReviewDay } from "@/lib/renovate-review";
 import { ActionSuccessFlashbar, PrimaryActionButton, SaveButton, type ActionConfirmation } from "./action-ui";
 import { InfoPopover } from "./info-ui";
@@ -636,7 +636,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         <div id="setup-top-navigation">
           <TopNavigation
             identity={{ href: "/", title: "UDS Scout", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); router.push("/"); } }}
-            utilities={[]}
+            utilities={[{ type: "button", iconUrl: "/github-mark.svg", iconAlt: "GitHub", ariaLabel: "Open UDS Scout repository on GitHub", href: UDS_SCOUT_REPOSITORY_URL, target: "_blank", rel: "noopener noreferrer", disableUtilityCollapse: true }]}
             i18nStrings={{ overflowMenuTriggerText: "More", overflowMenuTitleText: "All", overflowMenuDismissIconAriaLabel: "Close menu" }}
           />
         </div>
@@ -681,7 +681,10 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
       <div id="setup-top-navigation">
         <TopNavigation
           identity={{ href: "/", title: "UDS Scout", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); router.push("/"); } }}
-          utilities={settingsMode || replayMode ? [{ type: "button", text: "Back to operations", iconName: "arrow-left", onClick: () => router.push("/") }] : []}
+          utilities={[
+            { type: "button", iconUrl: "/github-mark.svg", iconAlt: "GitHub", ariaLabel: "Open UDS Scout repository on GitHub", href: UDS_SCOUT_REPOSITORY_URL, target: "_blank", rel: "noopener noreferrer", disableUtilityCollapse: true },
+            ...(settingsMode || replayMode ? [{ type: "button" as const, text: "Back to operations", iconName: "arrow-left" as const, onClick: () => router.push("/") }] : []),
+          ]}
           i18nStrings={{ overflowMenuTriggerText: "More", overflowMenuTitleText: "All", overflowMenuDismissIconAriaLabel: "Close menu" }}
         />
       </div>

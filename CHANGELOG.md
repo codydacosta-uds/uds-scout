@@ -40,6 +40,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - CodeQL and dependency review now remain skipped unless the `GHAS_ENABLED` repository variable explicitly confirms that GitHub Advanced Security is available.
 - Infrastructure Explorer navigation, page content, and API access now require the SONIC repository to be selected in the current workspace.
 - OpenSSF Scorecard CLI downloads now retry transient GitHub release availability failures while retaining checksum verification.
+- Added a GitHub mark in the top navigation linking directly to the UDS Scout source repository.
 - Removed private Defense Unicorns Registry credential collection and authenticated package lookups; Security Intelligence retains the public Registry scan metadata currently supplying package SBOM and vulnerability evidence.
 - Standardized optional explanations on the AWS-style **Info** link and popover, reducing always-visible setup and overview copy.
 - Simplified the full Renovate page hierarchy by removing the redundant nested review heading.

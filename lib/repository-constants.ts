@@ -1,5 +1,7 @@
 import repositoryGroups from "@/config/repository-groups.json";
 
+export const UDS_SCOUT_REPOSITORY_URL = "https://github.com/codydacosta-uds/uds-scout";
+
 // SONIC capabilities are keyed to the selected repository, not to any quick-select group.
 export const SONIC_REPOSITORY = "nswccd-devsecops/sonic-swf-iac";
 

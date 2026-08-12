@@ -204,8 +204,8 @@ Docker runs the standalone production build as a non-root user and persists non-
 Clone the repository once, then build and start Scout:
 
 ```bash
-git clone https://github.com/codydacosta-uds/d2d-operations.git
-cd d2d-operations
+git clone https://github.com/codydacosta-uds/uds-scout.git
+cd uds-scout
 task docker:start
 ```
 
@@ -218,7 +218,7 @@ Open [http://127.0.0.1:3001](http://127.0.0.1:3001), enter the GitHub token in s
 From a clean checkout on the `main` branch, run:
 
 ```bash
-cd d2d-operations
+cd uds-scout
 task update
 ```
 
