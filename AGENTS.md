@@ -107,7 +107,7 @@ The top navigation keeps a browser-local countdown labeled `Next SONIC maintenan
 - AWS Cloudscape components as the default component library
 - Server-only GitHub REST API access using `GITHUB_TOKEN`
 - Never send the GitHub token to browser code or API responses
-- Read-only GitHub behavior: no mutations, write operations, or implicit actions
+- GitHub behavior is read-only except for explicitly confirmed re-runs of a selected failed job or workflow in a tracked repository. Revalidate the completed failed run and job relationship server-side, require Actions write permission, and never retry automatically or add other GitHub mutations implicitly.
 - Gitlab mutations are limited to the dedicated ticket composer and projects explicitly selected from the authenticated Gitlab user’s accessible-project catalog. Persist only non-secret project paths, require exactly one server-allowlisted target per batch, revalidate Developer access and any operator-selected project labels before every submission, stage drafts locally, require a full batch review and explicit confirmation, enforce a maximum of 20 issues on the server, and report each creation result without automatic retries. Do not add other Gitlab writes implicitly.
 - No database, authentication system, webhooks, or workers unless explicitly requested
 - Refresh GitHub data every 60 seconds and on page reload

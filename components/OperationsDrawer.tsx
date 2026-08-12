@@ -14,6 +14,7 @@ import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import { useEffect, useRef, useState } from "react";
+import { ActionSuccessToast, PrimaryActionButton, type ActionConfirmation } from "./action-ui";
 import { InfrastructureNodeDrawer } from "./InfrastructureExplorer";
 import { ReleaseNotes } from "./ReleaseNotes";
 import { WorkflowNotes } from "./WorkflowNotes";
@@ -25,6 +26,7 @@ import {
   DrawerKeyValueList,
   DrawerPrimaryButton,
   EmptyState,
+  pipelineFailed,
   pipelineStatus,
   pullWorkflowStatus,
   PullAuthor,
@@ -173,9 +175,84 @@ function FailureWorkingNotes({ viewer, noteKey, durableHref }: {
   return <Container header={<Header variant="h3">Failure working notes</Header>}><WorkflowNotes viewer={viewer} noteKey={noteKey} durableHref={durableHref} /></Container>;
 }
 
-function SelectedPipelineFailure({ repository, runId, checkName, noteKey, durableHref, viewer, notesOpen, attentionPulse }: {
+type WorkflowRerunTarget = { scope: "job" | "workflow"; label: string; jobId?: number };
+
+function WorkflowRerunActions({ repository, runId, workflowLabel, job, children }: {
+  repository: string;
+  runId: string;
+  workflowLabel: string;
+  job?: { id: number; name: string } | null;
+  children?: React.ReactNode;
+}) {
+  const [target, setTarget] = useState<WorkflowRerunTarget | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<ActionConfirmation | null>(null);
+  const [accepted, setAccepted] = useState(false);
+  const chooseTarget = (scope: "job" | "workflow") => setTarget(scope === "job" && job
+    ? { scope, label: job.name, jobId: job.id }
+    : { scope: "workflow", label: workflowLabel });
+
+  const submit = async () => {
+    if (!target) return;
+    setSubmitting(true);
+    setError(null);
+    setConfirmation(null);
+    try {
+      const response = await fetch("/api/github/workflow-rerun", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repository, runId: Number(runId), scope: target.scope, ...(target.jobId ? { jobId: target.jobId } : {}) }),
+      });
+      const data = await response.json() as { accepted?: boolean; error?: string };
+      if (!response.ok || !data.accepted) throw new Error(data.error ?? "GitHub did not accept the re-run request.");
+      setTarget(null);
+      setAccepted(true);
+      setConfirmation({
+        header: target.scope === "job" ? "Job re-run requested" : "Workflow re-run requested",
+        content: target.scope === "job"
+          ? `${target.label} was queued in GitHub. Scout will show the new status on refresh.`
+          : "The workflow was queued in GitHub. Scout will show the new status on refresh.",
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "GitHub did not accept the re-run request.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <SpaceBetween size="s">
+      {confirmation ? <ActionSuccessToast confirmation={confirmation} onDismiss={() => setConfirmation(null)} /> : null}
+      {error ? <StatusIndicator type="error">{error}</StatusIndicator> : null}
+      <SpaceBetween direction="horizontal" size="s">
+        {children}
+        {job ? (
+          <SpaceBetween direction="horizontal" size="s">
+            <Button variant="inline-link" disabled={accepted} loading={submitting} onClick={() => chooseTarget("job")}>Re-run job</Button>
+            <Button variant="inline-link" disabled={accepted} loading={submitting} onClick={() => chooseTarget("workflow")}>Re-run workflow</Button>
+          </SpaceBetween>
+        ) : <Button iconName="refresh" disabled={accepted} loading={submitting} onClick={() => chooseTarget("workflow")}>Re-run workflow</Button>}
+      </SpaceBetween>
+      {target ? (
+        <div className="drawer-rerun-confirmation">
+          <SpaceBetween size="xs">
+            <Box variant="strong">{target.scope === "job" ? `Re-run ${target.label}?` : "Re-run workflow?"}</Box>
+            <Box color="text-body-secondary">{target.scope === "job"
+              ? "GitHub will re-run this job and any jobs that depend on it using the same commit and workflow configuration."
+              : "GitHub will re-run every job in this workflow using the same commit and workflow configuration."}</Box>
+            <SpaceBetween direction="horizontal" size="xs"><Button disabled={submitting} onClick={() => setTarget(null)}>Cancel</Button><PrimaryActionButton loading={submitting} onClick={submit}>{target.scope === "job" ? "Re-run job" : "Re-run workflow"}</PrimaryActionButton></SpaceBetween>
+          </SpaceBetween>
+        </div>
+      ) : null}
+    </SpaceBetween>
+  );
+}
+
+function SelectedPipelineFailure({ repository, runId, jobId, checkName, noteKey, durableHref, viewer, notesOpen, attentionPulse }: {
   repository: string;
   runId: string | null;
+  jobId: string | null;
   checkName: string;
   noteKey: string;
   durableHref: string;
@@ -202,7 +279,7 @@ function SelectedPipelineFailure({ repository, runId, checkName, noteKey, durabl
     return () => controller.abort();
   }, [repository, runId]);
 
-  const exactJob = detail?.jobs.find((job) => job.name.toLowerCase() === checkName.toLowerCase()) ?? null;
+  const exactJob = detail?.jobs.find((job) => String(job.id) === jobId || job.name.toLowerCase() === checkName.toLowerCase()) ?? null;
   const visibleJobs = exactJob ? [exactJob] : detail?.jobs ?? [];
 
   return (
@@ -212,7 +289,9 @@ function SelectedPipelineFailure({ repository, runId, checkName, noteKey, durabl
       {detail ? exactJob ? (
         <SpaceBetween size="s">
           {exactJob.failedSteps.length ? <SpaceBetween size="xxs">{exactJob.failedSteps.map((step) => <div className="drawer-failed-step" key={`${exactJob.id}-${step.number}`}><StatusIndicator type={step.conclusion === "cancelled" ? "stopped" : "error"}>{step.conclusion === "cancelled" ? "Cancelled step" : "Failed step"}</StatusIndicator><Box>{step.name}</Box></div>)}</SpaceBetween> : <Box color="text-body-secondary">GitHub did not identify a failed step for this job.</Box>}
-          <SpaceBetween direction="horizontal" size="s"><Link href={exactJob.url} external>Open job</Link><Link href={detail.run.url} external>Open workflow run</Link></SpaceBetween>
+          <WorkflowRerunActions repository={repository} runId={runId!} workflowLabel={detail.run.name} job={exactJob}>
+            <Link href={exactJob.url} external>Open job</Link><Link href={detail.run.url} external>Open workflow run</Link>
+          </WorkflowRerunActions>
         </SpaceBetween>
       ) : (
         <SpaceBetween size="s">
@@ -222,7 +301,9 @@ function SelectedPipelineFailure({ repository, runId, checkName, noteKey, durabl
               {job.failedSteps.length ? <SpaceBetween size="xxs">{job.failedSteps.map((step) => <div className="drawer-failed-step" key={`${job.id}-${step.number}`}><StatusIndicator type={step.conclusion === "cancelled" ? "stopped" : "error"}>{step.conclusion === "cancelled" ? "Cancelled step" : "Failed step"}</StatusIndicator><Box>{step.name}</Box></div>)}</SpaceBetween> : null}
             </div>
           )) : <Box color="text-body-secondary">GitHub did not return a failed job for this run.</Box>}
-          <Link href={detail.run.url} external>Open workflow run</Link>
+          <WorkflowRerunActions repository={repository} runId={runId!} workflowLabel={detail.run.name}>
+            <Link href={detail.run.url} external>Open workflow run</Link>
+          </WorkflowRerunActions>
         </SpaceBetween>
       ) : null}
       {notesOpen ? <div className={`drawer-notes-scroll-target${attentionPulse ? ` drawer-failure-details-attention-${attentionPulse % 2 ? "a" : "b"}` : ""}`}><Container header={<Header variant="h3">Working notes</Header>}><WorkflowNotes viewer={viewer} noteKey={noteKey} durableHref={durableHref} /></Container></div> : null}
@@ -297,7 +378,7 @@ function PullRequestFailureWorkspace({ pull, repository, overview, focusOnOpen }
           <div ref={detailsRef} className="drawer-failure-details">
             <SpaceBetween size="xs">
               <Header variant="h3"><span className="drawer-selected-failure-heading">{selectedCheck.name}</span></Header>
-              <SelectedPipelineFailure key={`${selectedNoteKey}:${selectedCheck.name}`} repository={repository} runId={selectedRunId} checkName={selectedCheck.name} noteKey={selectedNoteKey} durableHref={pull.url} viewer={overview.viewer.login} notesOpen={notesOpen} attentionPulse={attentionPulse} />
+              <SelectedPipelineFailure key={`${selectedNoteKey}:${selectedCheck.name}`} repository={repository} runId={selectedRunId} jobId={selectedJobId} checkName={selectedCheck.name} noteKey={selectedNoteKey} durableHref={pull.url} viewer={overview.viewer.login} notesOpen={notesOpen} attentionPulse={attentionPulse} />
             </SpaceBetween>
           </div>
         ) : null}
@@ -435,6 +516,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
             { label: "Blocks pull request", value: failure.blocksPullRequest ? `#${failure.blocksPullRequest}` : "Not known to block a selected pull request" },
             { label: "Age", value: relativeTime(failure.updatedAt, overview.generatedAt) },
           ]} />
+          <WorkflowRerunActions repository={failure.repository} runId={String(failure.id)} workflowLabel={failure.name} />
           <FailureWorkingNotes viewer={overview.viewer.login} noteKey={`${failure.repository}:pipeline:${workflowRunId(failure.url) ?? failure.id}:failure:${failure.failedJob ?? failure.name}`} durableHref={failure.blocksPullRequest ? `https://github.com/${failure.repository}/pull/${failure.blocksPullRequest}` : failure.url} />
           <Box color="text-body-secondary">UDS Scout does not retrieve or display full workflow logs. Open GitHub for log-level investigation.</Box>
         </SpaceBetween>
@@ -457,6 +539,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
             { label: "Started by", value: run.actor },
             { label: "Started", value: relativeTime(run.createdAt, overview.generatedAt) },
           ]} />
+          {run.status === "completed" && pipelineFailed(run.conclusion) ? <WorkflowRerunActions repository={selection.repository} runId={String(run.id)} workflowLabel={run.name} /> : null}
         </SpaceBetween>
       </Drawer>
     );

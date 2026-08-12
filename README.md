@@ -101,7 +101,7 @@ GitLab is not yet a second repository-operations dashboard in this release. GitH
 
 ## Safety and data boundaries
 
-- GitHub access is read-only and limited to the configured repository selection.
+- GitHub access is limited to the configured repository selection. The only GitHub mutation is an explicitly confirmed re-run of a selected failed job or workflow.
 - GitLab writes are limited to the staged, reviewed, and explicitly confirmed ticket-composer workflow.
 - GitHub and GitLab tokens are read only by Next.js server code and are never returned in browser API responses.
 - Tokens entered during setup remain in server memory for the current process; environment tokens remain outside persisted Scout settings.
@@ -129,6 +129,7 @@ GitLab is not yet a second repository-operations dashboard in this release. GitH
 - Node.js 22 recommended
 - npm
 - A GitHub token with read access to the repositories you intend to select
+- Optional: Actions write permission on repositories where Scout should re-run failed jobs or workflows
 - Organization authorization for the token when a selected repository enforces SSO
 - Optional: a GitLab token for selected-project work items and ticket creation
 - Optional: [Task](https://taskfile.dev/) (`brew install go-task` on macOS)
@@ -284,6 +285,7 @@ Primary routes include:
 - `GET|POST /api/setup/repositories` — list GitHub repositories and save workspace selections
 - `GET /api/setup/gitlab/projects` — list or validate accessible GitLab projects
 - `GET /api/github/overview` — aggregated GitHub operational dashboard
+- `POST /api/github/workflow-rerun` — explicitly confirmed failed-job or workflow re-run for a tracked repository
 - `GET /api/security[?repository=owner/repository]` — cached security state and progressive tracked-repository enrichment
 - `GET /api/github/repository?repo=owner/repository` — one selected repository workspace
 - `GET /api/github/infrastructure` — SONIC Terraform source analysis

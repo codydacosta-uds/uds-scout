@@ -16,7 +16,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - Added pipeline-state filtering to the full Renovate updates page for failed or cancelled, running, passed, and no-check updates.
 - Added a browser-local daily control to show or hide the overview Renovate review without changing its configured weekly schedule.
 - Added major-version detection from Renovate pull-request metadata and version changes, with a dedicated overview count, red table labels, filtering, and version details in the pull-request drawer.
-- Added a controlled failed-check drawer with exact GitHub run links, failed job and step details, and a browser-local, checkable next-step queue scoped to the GitHub user, workflow run, and selected failure.
+- Added a controlled failed-check drawer with exact GitHub run links, failed job and step details, confirmed job or workflow re-run actions, and a browser-local, checkable next-step queue scoped to the GitHub user, workflow run, and selected failure.
 - Added a one-time notice explaining that workflow notes are an unshared browser scratchpad and directing durable context to Notion or GitHub.
 - Added shared action and save components with consistent loading, disabled, and primary-action presentation.
 - Added repository-configured quick-select groups, including UDS Foundry Maintainers, using the simple group-name and repository-list format in `config/repository-groups.json`.
@@ -36,6 +36,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - Made repository attention reasons open the focused blocked-PR, review, ownership, workflow, or UDS Common queue needed to resolve them, with the same next action available in repository drawers.
 - Refocused the pull-request table on ownership, pipeline health, status, and recency, with repository and author filters and direct failed-check handoffs.
 - Consolidated repeated primary-button and success-banner patterns so equivalent actions behave consistently across settings, setup, drawers, ticket creation, and Test Lab.
+- Quick pipeline re-run acknowledgements now appear as temporary lower-right notifications that fade away without shifting drawer content.
 - Standardized optional explanations on the AWS-style **Info** link and popover, reducing always-visible setup and overview copy.
 - Simplified the full Renovate page hierarchy by removing the redundant nested review heading.
 

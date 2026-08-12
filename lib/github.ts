@@ -88,6 +88,35 @@ export async function validateGitHubToken(value: string) {
   return await response.json() as { login: string; name: string | null; avatar_url: string; html_url: string };
 }
 
+export async function githubWorkflowRerun(repository: string, runId: number, jobId?: number) {
+  const path = jobId
+    ? `/repos/${repository}/actions/jobs/${jobId}/rerun`
+    : `/repos/${repository}/actions/runs/${runId}/rerun`;
+  const response = await fetch(`${API_ROOT}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token()}`,
+      "X-GitHub-Api-Version": API_VERSION,
+      "User-Agent": USER_AGENT,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = (await response.json()) as { message?: string };
+      detail = body.message ?? detail;
+    } catch {
+      // Keep the HTTP status text when GitHub does not return JSON.
+    }
+    throw new GitHubApiError(`GitHub API: ${detail}`, response.status);
+  }
+
+  clearGitHubCache();
+}
+
 export async function githubRequest<T>(path: string, ttl = CACHE_TTL): Promise<T> {
   const cached = responseCache.get(path);
   if (cached && cached.expires > Date.now()) {

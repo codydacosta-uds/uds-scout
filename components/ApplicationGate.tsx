@@ -553,7 +553,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const selectedDefaultGitlabProject = defaultGitlabProjectOptions.find((option) => option.value?.toLowerCase() === gitlabDefaultProject?.toLowerCase()) ?? null;
 
   const githubConnection = (
-    <Container header={<Header variant="h2" description="Required" info={<InfoPopover header="GitHub connection"><SpaceBetween size="s"><Box>GitHub is required to load the repositories you explicitly select.</Box><Box color="text-body-secondary">Browser-entered tokens stay in server memory for this app session. You can instead provide <Box variant="code" display="inline">GITHUB_TOKEN</Box> in the server environment.</Box><Link href="https://github.com/settings/personal-access-tokens" external>Open GitHub token settings</Link></SpaceBetween></InfoPopover>}>Connect GitHub</Header>}>
+    <Container header={<Header variant="h2" description="Required" info={<InfoPopover header="GitHub connection"><SpaceBetween size="s"><Box>GitHub is required to load the repositories you explicitly select.</Box><Box color="text-body-secondary">Read access is sufficient for visibility. Re-running a failed job or workflow requires Actions write permission for that repository.</Box><Box color="text-body-secondary">Browser-entered tokens stay in server memory for this app session. You can instead provide <Box variant="code" display="inline">GITHUB_TOKEN</Box> in the server environment.</Box><Link href="https://github.com/settings/personal-access-tokens" external>Open GitHub token settings</Link></SpaceBetween></InfoPopover>}>Connect GitHub</Header>}>
       {tokenReady ? (
         <SpaceBetween size="l">
           {connectedViewer ? (
