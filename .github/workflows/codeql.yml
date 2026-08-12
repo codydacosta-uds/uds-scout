@@ -16,8 +16,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Private repositories require GitHub Advanced Security for CodeQL uploads.
+  # Set the repository variable GHAS_ENABLED=true when that capability is available.
   analyze:
     name: JavaScript and TypeScript analysis
+    if: vars.GHAS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

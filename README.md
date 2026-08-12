@@ -1,10 +1,10 @@
 # UDS Scout
 
-[![CI](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/ci.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/codeql.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/codeql.yml)
-[![Security checks](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/security.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/security.yml)
-[![Container security](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/container-security.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/container-security.yml)
-[![Browser smoke tests](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/e2e.yml/badge.svg)](https://github.com/codydacosta-uds/d2d-operations/actions/workflows/e2e.yml)
+[![CI](https://github.com/codydacosta-uds/uds-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/codydacosta-uds/uds-scout/actions/workflows/ci.yml)
+[![Security checks](https://github.com/codydacosta-uds/uds-scout/actions/workflows/security.yml/badge.svg)](https://github.com/codydacosta-uds/uds-scout/actions/workflows/security.yml)
+[![Container security](https://github.com/codydacosta-uds/uds-scout/actions/workflows/container-security.yml/badge.svg)](https://github.com/codydacosta-uds/uds-scout/actions/workflows/container-security.yml)
+[![Browser smoke tests](https://github.com/codydacosta-uds/uds-scout/actions/workflows/e2e.yml/badge.svg)](https://github.com/codydacosta-uds/uds-scout/actions/workflows/e2e.yml)
+[![OpenSSF Scorecard](https://github.com/codydacosta-uds/uds-scout/actions/workflows/scorecard.yml/badge.svg)](https://github.com/codydacosta-uds/uds-scout/actions/workflows/scorecard.yml)
 [![Policy coverage](./public/coverage.svg)](#validation-and-security-checks)
 
 UDS Scout is a local-first engineering console for actionable operational visibility across a small, explicitly selected set of repositories. It brings review work, dependency updates, issues, pipeline failures, version alignment, infrastructure knowledge, and package-focused security context into one focused interface.
@@ -316,12 +316,13 @@ Use `npm test` for fast unit tests, `npm run test:watch` while developing, and `
 Credential-free GitHub Actions workflows provide:
 
 - Unit and API-boundary tests covering Test Lab allowlists, exact-SHA plans, fixed workflows and flavors, GitLab project/label/batch enforcement, setup-token non-disclosure, tracked repository scope, SBOM and OCI normalization, Terraform dependency inference, sensitive Terraform values, Renovate parsing, UDS Common parsing, and safe release-note Markdown.
-- CodeQL extended JavaScript/TypeScript analysis.
-- Pull-request dependency review, production `npm audit`, ShellCheck, forced-command runner policy checks, and Trivy source, secret, and configuration scanning.
+- CodeQL extended JavaScript/TypeScript analysis when GitHub Advanced Security is available and the `GHAS_ENABLED` repository variable is set to `true`.
+- Pull-request dependency review under the same GitHub Advanced Security gate, plus production `npm audit`, ShellCheck, forced-command runner policy checks, and Trivy source, secret, and configuration scanning.
 - Production image builds followed by High/Critical vulnerability and secret scanning.
 - Chromium smoke tests at desktop and narrow viewports with mocked setup data, including baseline response-header assertions.
+- A private-repository-compatible OpenSSF Scorecard CLI scan that publishes the aggregate and per-check scores to the workflow summary and retains the JSON report for 14 days. The public numeric Scorecard badge is unavailable while the repository is private.
 
-CI never receives application API tokens or the Zeus SSH key, never contacts Zeus, and never performs GitLab or GitHub mutations. Workflow permissions are explicit and read-only except for CodeQL's required `security-events: write` result upload. Action dependencies are commit-pinned and updated through Dependabot.
+CI never receives application API tokens or the Zeus SSH key, never contacts Zeus, and never performs GitLab or GitHub mutations. Workflow permissions are read-only except for CodeQL's gated `security-events: write` result upload. Action dependencies and the downloaded Scorecard CLI archive are pinned and integrity-checked; Dependabot maintains action dependencies.
 
 ## Roadmap
 

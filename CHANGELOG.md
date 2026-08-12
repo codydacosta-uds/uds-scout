@@ -7,7 +7,8 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 ### Added
 
 - Added a policy-focused Vitest suite with enforced coverage for Test Lab, GitLab mutation, token-handling, repository-scope, security normalization, SBOM/OCI, Terraform, Renovate, UDS Common, local-settings, and release-note safety boundaries, plus restricted-runner shell checks and desktop/narrow Playwright smoke tests.
-- Added credential-free CI, CodeQL, dependency review, production dependency audit, ShellCheck, Trivy source/secret/configuration and production-image scanning workflows, with commit-pinned actions, Dependabot updates, coverage and workflow badges, and retained failure reports.
+- Added credential-free CI, GitHub Advanced Security-gated CodeQL and dependency review, production dependency audit, ShellCheck, Trivy source/secret/configuration and production-image scanning workflows, with commit-pinned actions, Dependabot updates, coverage and workflow badges, and retained failure reports.
+- Added a private-repository-compatible OpenSSF Scorecard scan with a checksum-verified CLI, workflow summary scores, retained JSON reports, and a README workflow badge.
 - Added baseline browser security headers covering framing, content-type sniffing, referrer handling, browser capabilities, and opener isolation.
 - Added zero-configuration Security Intelligence for tracked Zarf repositories, with content-based package discovery, application and image normalization, immutable OCI digest resolution, remote SBOM discovery, optional authenticated Defense Unicorns Registry Zarf metadata, batched OSV and GitHub advisory matching, curated NVD application-product CVE coverage, Jenkins and GitLab vendor advisory matching, maintainer-focused application decisions with CVE inspection drawers and directly linked authoritative advisories, explicit per-source coverage, progressive local caching, repository Security tabs, a repository-oriented global view, and explicit exclusion of the SONIC infrastructure/deployment repository.
 - Added reusable security product profiles and a repeatable Security Intelligence enrichment skill for auditing newly selected repositories, validating product coordinates and advisory ranges, and adding vendor coverage without repository-specific CVE rules.
@@ -37,6 +38,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - Refocused the pull-request table on ownership, pipeline health, status, and recency, with repository and author filters and direct failed-check handoffs.
 - Consolidated repeated primary-button and success-banner patterns so equivalent actions behave consistently across settings, setup, drawers, ticket creation, and Test Lab.
 - Quick pipeline re-run acknowledgements now appear as temporary lower-right notifications that fade away without shifting drawer content.
+- CodeQL and dependency review now remain skipped unless the `GHAS_ENABLED` repository variable explicitly confirms that GitHub Advanced Security is available.
 - Standardized optional explanations on the AWS-style **Info** link and popover, reducing always-visible setup and overview copy.
 - Simplified the full Renovate page hierarchy by removing the redundant nested review heading.
 

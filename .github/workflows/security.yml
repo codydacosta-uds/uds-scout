@@ -15,9 +15,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Private repositories require GitHub Advanced Security for dependency review.
+  # Set the repository variable GHAS_ENABLED=true when that capability is available.
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && vars.GHAS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
