@@ -13,6 +13,7 @@ export type SetupStatus = {
   gitlab: {
     hasToken: boolean;
     tokenSource: "environment" | "session" | null;
+    environmentAvailable: boolean;
     viewer: SetupGitlabViewer | null;
     projects: string[];
     defaultProject: string | null;

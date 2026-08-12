@@ -5,7 +5,6 @@ export KUBECONFIG="$HOME/.config/d2d-test-lab/kubeconfig"
 
 ROOT="$HOME/.d2d-test-lab"
 WORKSPACE="$ROOT/workspace"
-STATE_FILE="$ROOT/state"
 STDOUT_LOG="$ROOT/stdout.log"
 STDERR_LOG="$ROOT/stderr.log"
 BASELINE_PODS="$ROOT/baseline-pods.json"

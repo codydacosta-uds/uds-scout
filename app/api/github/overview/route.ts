@@ -208,7 +208,7 @@ export async function GET() {
     const viewer = await githubRequest<Viewer>("/user", 5 * 60_000);
     const tracked = trackedRepositories();
     const localSettings = readLocalSettings(viewer.login);
-    const gitlabConfigured = gitlabTokenStatus().configured && Boolean(await gitlabRequest<GitlabViewer>("/user", 5 * 60_000).catch(() => null));
+    const gitlabConfigured = localSettings?.gitlabEnabled !== false && gitlabTokenStatus().configured && Boolean(await gitlabRequest<GitlabViewer>("/user", 5 * 60_000).catch(() => null));
     const trackedNames = new Set(tracked.map((repository) => repository.toLowerCase()));
     const hasSonic = trackedNames.has(SONIC_REPOSITORY.toLowerCase());
     const hasTestLabRepository = TEST_LAB_ENABLED && TEST_LAB_REPOSITORIES.some((repository) => trackedNames.has(repository.toLowerCase()));
@@ -326,7 +326,7 @@ export async function GET() {
         renovatePulls: renovate.length,
         unassignedRenovatePulls: renovate.filter((pull) => pull.workflow.elevatedAutomation && !pull.assignees.length && !pull.workflow.reviewRequestedFromViewer).length,
         reviewRequests: pulls.filter((pull) => !pull.workflow.ignored && pull.workflow.reviewRequestedFromViewer).length,
-        udsCommon: udsCommon ? { status: udsCommon.status, versions: udsCommon.versions } : null,
+        udsCommon: udsCommon ? { status: udsCommon.status, versions: udsCommon.versions, tasksUrl: udsCommon.tasksUrl } : null,
         health: attention.level === "healthy" ? "healthy" as const : attention.level === "unknown" ? "unknown" as const : "attention" as const,
         attention,
         workflowCounts: {

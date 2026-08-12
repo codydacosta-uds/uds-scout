@@ -44,6 +44,11 @@ export function currentGitHubViewer() {
   return runtimeState.__d2dGitHubViewer ?? null;
 }
 
+export function githubContainerRegistryAuthorization() {
+  const viewer = currentGitHubViewer() ?? "uds-scout";
+  return `Basic ${Buffer.from(`${viewer}:${token()}`, "utf8").toString("base64")}`;
+}
+
 export function clearGitHubCache() {
   cacheGeneration += 1;
   responseCache.clear();
@@ -81,6 +86,35 @@ export async function validateGitHubToken(value: string) {
   }
 
   return await response.json() as { login: string; name: string | null; avatar_url: string; html_url: string };
+}
+
+export async function githubWorkflowRerun(repository: string, runId: number, jobId?: number) {
+  const path = jobId
+    ? `/repos/${repository}/actions/jobs/${jobId}/rerun`
+    : `/repos/${repository}/actions/runs/${runId}/rerun`;
+  const response = await fetch(`${API_ROOT}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token()}`,
+      "X-GitHub-Api-Version": API_VERSION,
+      "User-Agent": USER_AGENT,
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = (await response.json()) as { message?: string };
+      detail = body.message ?? detail;
+    } catch {
+      // Keep the HTTP status text when GitHub does not return JSON.
+    }
+    throw new GitHubApiError(`GitHub API: ${detail}`, response.status);
+  }
+
+  clearGitHubCache();
 }
 
 export async function githubRequest<T>(path: string, ttl = CACHE_TTL): Promise<T> {
@@ -133,6 +167,25 @@ export async function githubRequest<T>(path: string, ttl = CACHE_TTL): Promise<T
   } finally {
     if (inFlightRequests.get(path) === request) inFlightRequests.delete(path);
   }
+}
+
+export async function githubBinaryRequest(path: string, maximumBytes = 20 * 1024 * 1024) {
+  const response = await fetch(`${API_ROOT}${path}`, {
+    headers: {
+      Accept: "application/octet-stream",
+      Authorization: `Bearer ${token()}`,
+      "X-GitHub-Api-Version": API_VERSION,
+      "User-Agent": USER_AGENT,
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new GitHubApiError(`GitHub asset download failed: ${response.statusText}`, response.status);
+  const declaredSize = Number(response.headers.get("content-length") ?? 0);
+  if (declaredSize > maximumBytes) throw new GitHubApiError("GitHub asset exceeds Scout's security metadata size limit.", 413);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maximumBytes) throw new GitHubApiError("GitHub asset exceeds Scout's security metadata size limit.", 413);
+  return bytes;
 }
 
 export async function githubGraphQL<T>(query: string, variables: Record<string, unknown>, ttl = CACHE_TTL): Promise<T> {
@@ -230,9 +283,59 @@ export async function githubContributorCount(repository: string, ttl = 30 * 60_0
   return count;
 }
 
+type NetworkErrorDetail = {
+  cause?: unknown;
+  code?: unknown;
+  message?: unknown;
+  name?: unknown;
+};
+
+function networkErrorChain(error: unknown) {
+  const chain: NetworkErrorDetail[] = [];
+  let current = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth += 1) {
+    const detail = current as NetworkErrorDetail;
+    chain.push(detail);
+    if (!detail.cause || detail.cause === current) break;
+    current = detail.cause;
+  }
+  return chain;
+}
+
+function githubNetworkError(error: unknown) {
+  const chain = networkErrorChain(error);
+  const codes = new Set(chain.flatMap((detail) => typeof detail.code === "string" ? [detail.code] : []));
+  const fetchFailed = chain.some((detail) => detail.name === "TypeError" && detail.message === "fetch failed");
+
+  if (codes.has("EAI_AGAIN") || codes.has("ENOTFOUND")) {
+    return {
+      message: "GitHub could not be reached because Scout could not resolve api.github.com. Check the Docker or host network connection, then try again.",
+      status: 503,
+    };
+  }
+  if (["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT"].some((code) => codes.has(code))) {
+    return {
+      message: "GitHub did not respond before the connection timed out. Check the Docker or host network connection, then try again.",
+      status: 503,
+    };
+  }
+  if (fetchFailed || ["ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "EHOSTUNREACH"].some((code) => codes.has(code))) {
+    return {
+      message: "Scout could not connect to GitHub. Check the Docker or host network connection, then try again.",
+      status: 503,
+    };
+  }
+  return null;
+}
+
 export function apiError(error: unknown) {
   if (error instanceof GitHubApiError) {
     return { message: error.message, status: error.status };
+  }
+  const networkFailure = githubNetworkError(error);
+  if (networkFailure) {
+    console.error("GitHub network request failed.", error);
+    return networkFailure;
   }
   console.error(error);
   return { message: "An unexpected server error occurred.", status: 500 };
@@ -361,6 +464,7 @@ export function presentPull(pull: RawPull) {
       reviewRequestedFromViewer: false,
       automation: false,
       renovate: false,
+      renovateUpdate: null,
       elevatedAutomation: false,
       ignored,
     },

@@ -370,7 +370,7 @@ export async function analyzeTerraform({
       outputs.push({
         name: scope === "root" ? name : `${scope}.${name}`,
         description: typeof block.description === "string" ? block.description : null,
-        value: stringify(block.value),
+        value: block.sensitive === true ? "Sensitive value hidden" : stringify(block.value),
         sensitive: block.sensitive === true,
         file: file.path,
         line: location?.line ?? 1,

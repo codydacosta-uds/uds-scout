@@ -26,6 +26,7 @@ function serializeProject(project: GitlabProject, validation: ProjectValidation)
 export async function GET(request: NextRequest) {
   try {
     const settings = readLocalSettings(currentGitHubViewer());
+    if (settings?.gitlabEnabled === false) return NextResponse.json({ error: "Gitlab is disabled for this workspace." }, { status: 409 });
     const selectedProjects = settings?.gitlabProjects ?? [];
 
     if (request.nextUrl.searchParams.get("selected") === "true") {

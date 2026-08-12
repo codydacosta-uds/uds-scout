@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { clearSessionGitHubToken, githubRequest, githubTokenStatus } from "@/lib/github";
 import { clearSessionGitlabToken } from "@/lib/gitlab";
 import { resetLocalSettings } from "@/lib/local-settings";
+import { clearSecurityRegistryTokenCache } from "@/lib/security-oci";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
   resetLocalSettings(viewer?.login);
   clearSessionGitHubToken();
   clearSessionGitlabToken();
+  clearSecurityRegistryTokenCache();
 
   return NextResponse.json({
     reset: true,

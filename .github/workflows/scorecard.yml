@@ -1,0 +1,81 @@
+name: OpenSSF Scorecard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 8 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: scorecard-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Supply-chain security score
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SCORECARD_VERSION: "5.5.0"
+      SCORECARD_ARCHIVE_SHA256: "83b90a05c1540ef1390db1cd5711e5fd04be9c1d8537fb84d39d02092d6a8dff"
+      SCORECARD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      GITHUB_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download pinned OpenSSF Scorecard CLI
+        run: |
+          archive="scorecard_${SCORECARD_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 4 --retry-all-errors --retry-delay 3 \
+            "https://github.com/ossf/scorecard/releases/download/v${SCORECARD_VERSION}/${archive}" \
+            --output scorecard.tar.gz
+          echo "${SCORECARD_ARCHIVE_SHA256}  scorecard.tar.gz" | sha256sum --check
+          tar --extract --gzip --file scorecard.tar.gz scorecard
+          chmod 0755 scorecard
+      - name: Analyze repository
+        run: |
+          ./scorecard \
+            --repo="github.com/${GITHUB_REPOSITORY}" \
+            --commit="${SCORECARD_COMMIT}" \
+            --format=json \
+            --output=scorecard.json \
+            --verbosity=warn
+      - name: Add score to job summary
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync("scorecard.json", "utf8"));
+          const score = Number.isFinite(report.score) ? report.score.toFixed(1) : "Not available";
+          const rows = [...(report.checks ?? [])]
+            .sort((left, right) => left.name.localeCompare(right.name))
+            .map((check) => `| ${check.name} | ${check.score < 0 ? "Not assessed" : `${check.score}/10`} |`);
+          const summary = [
+            "## OpenSSF Scorecard",
+            "",
+            `Aggregate score: **${score}${score === "Not available" ? "" : " / 10"}**`,
+            "",
+            `Commit: \`${report.repo?.commit ?? process.env.SCORECARD_COMMIT}\``,
+            "",
+            "| Check | Score |",
+            "| --- | ---: |",
+            ...rows,
+            "",
+            "The complete JSON report is retained as a workflow artifact.",
+          ].join("\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+          NODE
+      - name: Retain Scorecard report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
+        with:
+          name: openssf-scorecard-${{ github.run_id }}
+          path: scorecard.json
+          if-no-files-found: error
+          retention-days: 14

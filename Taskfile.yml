@@ -28,9 +28,12 @@ tasks:
       - npm install
 
   check:
-    desc: Run lint and production build checks
+    desc: Run lint, policy tests, coverage, restricted-runner, and production build checks
     cmds:
       - npm run lint
+      - npm run test:coverage
+      - npm run coverage:badge
+      - npm run test:runner
       - npm run build
 
   build:
@@ -47,7 +50,7 @@ tasks:
       - docker build --tag {{.DOCKER_IMAGE}} .
 
   docker:start:
-    desc: Build and start Docker; enter the GitHub token in the setup screen
+    desc: Build and start Docker; load optional runtime credentials from .env.local
     deps:
       - docker:build
     preconditions:
@@ -63,6 +66,8 @@ tasks:
         --name {{.DOCKER_CONTAINER}}
         --publish 127.0.0.1:{{.PORT | default "3001"}}:3001
         --mount source={{.DOCKER_VOLUME}},target=/data
+        $(if [ -f .env.local ]; then printf '%s' '--env-file .env.local'; fi)
+        $(for variable in GITHUB_TOKEN GH_TOKEN GITLAB_TOKEN GITLAB_URL NVD_API_KEY GITHUB_REPOSITORIES; do eval "value=\${$variable:-}"; if [ -n "$value" ]; then printf ' --env %s' "$variable"; fi; done)
         {{.DOCKER_IMAGE}}
       - |
         attempts=0
@@ -76,7 +81,7 @@ tasks:
           sleep 1
         done
       - echo "UDS Scout is ready at http://127.0.0.1:{{.PORT | default "3001"}}"
-      - echo "Open the URL and enter your GitHub token to continue."
+      - echo "Open the URL and enter your GitHub token to continue if it was not supplied at runtime."
     silent: true
 
   docker:update:

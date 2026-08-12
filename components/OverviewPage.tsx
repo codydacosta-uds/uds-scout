@@ -15,7 +15,7 @@ import Grid from "@cloudscape-design/components/grid";
 import Header from "@cloudscape-design/components/header";
 import Icon from "@cloudscape-design/components/icon";
 import Link from "@cloudscape-design/components/link";
-import Popover from "@cloudscape-design/components/popover";
+import Modal from "@cloudscape-design/components/modal";
 import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
@@ -23,65 +23,20 @@ import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import { useEffect, useState } from "react";
 import { renovateReviewDayForDate } from "@/lib/renovate-review";
+import { isSecurityIntelligenceRepository } from "@/lib/repository-constants";
+import { PrimaryActionButton } from "./action-ui";
+import { InfoPopover as PanelInfo } from "./info-ui";
 import type { DrawerSelection } from "./operations-types";
-import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryHealth, udsCommonStatus } from "./operations-ui";
-import type { GitLabWorkItems, Overview, PullRequest, RepositoryCatalog } from "./types";
+import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryAttentionAction, repositoryHealth, udsCommonStatusAction } from "./operations-ui";
+import { filterRenovateUpdatesByCheck, isMajorRenovateUpdate, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
+import type { SecurityWorkspace } from "./security-types";
+import type { GitLabWorkItems, Overview, RepositoryCatalog } from "./types";
 
 function greetingForHour(hour: number) {
   if (hour >= 5 && hour < 12) return "Good morning";
   if (hour >= 12 && hour < 17) return "Good afternoon";
   if (hour >= 17 && hour < 22) return "Good evening";
   return "Welcome back";
-}
-
-type RenovateCheckFilter = "all" | "failed" | "running" | "passed" | "no-checks";
-
-function renovateCheckCategory(pull: PullRequest): Exclude<RenovateCheckFilter, "all"> {
-  const { total, rollup } = pull.workflow.checks;
-  if (rollup.failing || rollup.cancelled) return "failed";
-  if (rollup.pending) return "running";
-  if (total) return "passed";
-  return "no-checks";
-}
-
-const renovateCheckPriority: Record<Exclude<RenovateCheckFilter, "all">, number> = {
-  failed: 0,
-  running: 1,
-  passed: 2,
-  "no-checks": 3,
-};
-
-function RenovateCheckStatus({ pull }: { pull: PullRequest }) {
-  const { total, rollup } = pull.workflow.checks;
-  const pendingChecks = rollup.pendingChecks ?? [];
-  const failingChecks = rollup.failingChecks ?? rollup.failingNames.map((name) => ({ name, url: null }));
-  const cancelledChecks = rollup.cancelledChecks ?? rollup.cancelledNames.map((name) => ({ name, url: null }));
-  const completedSummary = `${rollup.passed} passed${rollup.cancelled ? ` · ${rollup.cancelled} cancelled` : ""}${rollup.pending ? ` · ${rollup.pending} running` : ""}`;
-  if (rollup.failing) {
-    const firstFailure = failingChecks.find((check) => check.url) ?? failingChecks[0];
-    return <SpaceBetween size="xxs"><span title={rollup.failingNames.join(", ")}><Link href={firstFailure?.url ?? `${pull.url}/checks`} external ariaLabel={`Open ${rollup.failing === 1 ? firstFailure?.name ?? "failed check" : "first failed check"} for pull request ${pull.number}`}><StatusIndicator type="error">{rollup.failing} failed</StatusIndicator></Link></span><Box color="text-body-secondary">{completedSummary}</Box></SpaceBetween>;
-  }
-  if (rollup.cancelled) {
-    const firstCancellation = cancelledChecks.find((check) => check.url) ?? cancelledChecks[0];
-    return <SpaceBetween size="xxs"><span title={rollup.cancelledNames.join(", ")}><Link href={firstCancellation?.url ?? `${pull.url}/checks`} external ariaLabel={`Open ${rollup.cancelled === 1 ? firstCancellation?.name ?? "cancelled check" : "first cancelled check"} for pull request ${pull.number}`}><StatusIndicator type="stopped">{rollup.cancelled} cancelled</StatusIndicator></Link></span><Box color="text-body-secondary">{rollup.passed} of {total} passed</Box></SpaceBetween>;
-  }
-  if (rollup.pending) {
-    const firstPending = pendingChecks.find((check) => check.url) ?? pendingChecks[0];
-    return <SpaceBetween size="xxs"><span title={pendingChecks.map((check) => check.name).join(", ")}><Link href={firstPending?.url ?? `${pull.url}/checks`} external ariaLabel={`Open ${rollup.pending === 1 ? firstPending?.name ?? "running check" : "first running check"} for pull request ${pull.number}`}><StatusIndicator type="in-progress">{rollup.pending} running</StatusIndicator></Link></span><Box color="text-body-secondary">{rollup.passed} of {total} passed</Box></SpaceBetween>;
-  }
-  if (total) return <StatusIndicator type="success">All {total} passed</StatusIndicator>;
-  return <StatusIndicator type="pending">No checks reported</StatusIndicator>;
-}
-
-function RenovateApprovalStatus({ pull }: { pull: PullRequest }) {
-  const { count, required, decision, changesRequestedBy } = pull.workflow.approvals;
-  if (changesRequestedBy.length) return <StatusIndicator type="error">Changes requested</StatusIndicator>;
-  if (decision === "APPROVED" || (required !== null && required > 0 && count >= required)) return <StatusIndicator type="success">{required ? `${count}/${required} approved` : `${count} approved`}</StatusIndicator>;
-  if (required === 0) return <StatusIndicator type="pending">Not required</StatusIndicator>;
-  if (required !== null) return <StatusIndicator type="warning">{count}/{required} approved</StatusIndicator>;
-  if (decision === "REVIEW_REQUIRED") return <StatusIndicator type="warning">Review required</StatusIndicator>;
-  if (count) return <StatusIndicator type="info">{count} approved</StatusIndicator>;
-  return <StatusIndicator type="pending">No review state</StatusIndicator>;
 }
 
 function viewerFirstName(viewer: Overview["viewer"]) {
@@ -110,22 +65,6 @@ function gitLabWorkItemStatus(status: GitLabWorkItems["items"][number]["status"]
   if (category === "done") return <StatusIndicator type="success">{status.name}</StatusIndicator>;
   if (category === "cancelled") return <StatusIndicator type="stopped">{status.name}</StatusIndicator>;
   return <StatusIndicator type="pending">{status.name}</StatusIndicator>;
-}
-
-function PanelInfo({ header, children }: { header: string; children: React.ReactNode }) {
-  return (
-    <Popover
-      header={header}
-      content={children}
-      dismissButton
-      dismissAriaLabel="Close information"
-      position="right"
-      size="medium"
-      triggerType="custom"
-    >
-      <Button variant="icon" iconName="status-info" ariaLabel={`About ${header}`} />
-    </Popover>
-  );
 }
 
 function ToolVersion({ release, generatedAt, className }: {
@@ -202,6 +141,21 @@ const OVERVIEW_CARD_LABELS: Record<OverviewCardId, string> = {
 
 const overviewCardOrderKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:overview-card-order`;
 const legacyOverviewCardOrderKey = (viewer: string) => `d2d-operations:${viewer.toLowerCase()}:overview-card-order`;
+const renovateReviewVisibilityKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:renovate-review-visibility`;
+const firstRunWelcomeKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:overview-welcome:v1`;
+
+function localDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dailyRenovateReviewOverride(viewer: string, date: Date) {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(renovateReviewVisibilityKey(viewer)) ?? "null") as { date?: unknown; visible?: unknown } | null;
+    return saved?.date === localDateKey(date) && typeof saved.visible === "boolean" ? saved.visible : null;
+  } catch {
+    return null;
+  }
+}
 function SortableOverviewCard({ id, label, customizing, children }: {
   id: OverviewCardId;
   label: string;
@@ -226,8 +180,9 @@ function SortableOverviewCard({ id, label, customizing, children }: {
   );
 }
 
-export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
+export function OverviewPage({ overview, securityWorkspace, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
   overview: Overview;
+  securityWorkspace: SecurityWorkspace | null;
   refreshing: boolean;
   refreshError: string | null;
   gitLabWorkItems: GitLabWorkItems | null;
@@ -242,7 +197,8 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
 }) {
   const [greeting, setGreeting] = useState("Welcome back");
   const [showWeeklyRenovateReview, setShowWeeklyRenovateReview] = useState(false);
-  const [renovateCheckFilter, setRenovateCheckFilter] = useState<RenovateCheckFilter>("all");
+  const [renovateCheckFilter, setRenovateCheckFilter] = useState<RenovateCheckFilter>("priority");
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
   const [cardOrder, setCardOrder] = useState<OverviewCardId[]>(DEFAULT_OVERVIEW_CARD_ORDER);
   const [customizeCardsOpen, setCustomizeCardsOpen] = useState(false);
   const cardDragSensors = useSensors(
@@ -255,6 +211,7 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
   const commonDisplayedVersion = commonOutdated
     ? commonReferencedVersions.length === 1 ? commonReferencedVersions[0] : "Mixed versions"
     : overview.udsCommon.latestVersion ?? "Unavailable";
+  const securityByRepository = new Map((securityWorkspace?.repositories ?? []).map((item) => [item.repositoryId.toLowerCase(), item]));
   const udsWarningLabel = overview.udsCommon.needsAttention
     ? "UDS Common versions need alignment"
     : overview.udsCore.comparison === "behind"
@@ -265,12 +222,21 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
     const updateLocalTime = () => {
       const now = new Date();
       setGreeting(greetingForHour(now.getHours()));
-      setShowWeeklyRenovateReview(overview.preferences.renovateReviewDay !== "hidden" && renovateReviewDayForDate(now) === overview.preferences.renovateReviewDay);
+      const scheduled = overview.preferences.renovateReviewDay !== "hidden" && renovateReviewDayForDate(now) === overview.preferences.renovateReviewDay;
+      setShowWeeklyRenovateReview(dailyRenovateReviewOverride(overview.viewer.login, now) ?? scheduled);
     };
     updateLocalTime();
     const timer = window.setInterval(updateLocalTime, 60_000);
     return () => window.clearInterval(timer);
-  }, [overview.preferences.renovateReviewDay]);
+  }, [overview.preferences.renovateReviewDay, overview.viewer.login]);
+
+  useEffect(() => {
+    try {
+      setWelcomeVisible(window.localStorage.getItem(firstRunWelcomeKey(overview.viewer.login)) !== "acknowledged");
+    } catch {
+      setWelcomeVisible(true);
+    }
+  }, [overview.viewer.login]);
 
   useEffect(() => {
     try {
@@ -309,7 +275,32 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
   };
 
   const jumpToRenovateReview = () => {
+    setRenovateCheckFilter("priority");
     document.getElementById("renovate-review")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  };
+
+  const dismissWelcome = () => {
+    try {
+      window.localStorage.setItem(firstRunWelcomeKey(overview.viewer.login), "acknowledged");
+    } catch {
+      // Keep the welcome dismissed for this view when browser storage is unavailable.
+    }
+    setWelcomeVisible(false);
+  };
+
+  const startWithMyWork = () => {
+    dismissWelcome();
+    window.setTimeout(() => document.getElementById("my-work-today")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }), 50);
+  };
+
+  const setRenovateReviewVisibleForToday = (visible: boolean, scrollToReview = false) => {
+    try {
+      window.localStorage.setItem(renovateReviewVisibilityKey(overview.viewer.login), JSON.stringify({ date: localDateKey(new Date()), visible }));
+    } catch {
+      // Keep the manual visibility choice for this view when browser storage is unavailable.
+    }
+    setShowWeeklyRenovateReview(visible);
+    if (visible && scrollToReview) window.setTimeout(jumpToRenovateReview, 50);
   };
 
   const activeBriefingSince = new Date(new Date(overview.generatedAt).getTime() - 86_400_000).toISOString();
@@ -334,52 +325,35 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
     ...overview.myWork.needsOwnership,
   ].map((pull) => [pull.id, pull])).values()];
   const myWorkCount = workQueue.length + overview.myWork.assignedIssues.length;
-  const scheduledRenovateUpdates = [...overview.renovate.pulls].sort((first, second) => renovateCheckPriority[renovateCheckCategory(first)] - renovateCheckPriority[renovateCheckCategory(second)] || new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime());
-  const renovateCheckCounts = scheduledRenovateUpdates.reduce<Record<Exclude<RenovateCheckFilter, "all">, number>>((counts, pull) => {
-    counts[renovateCheckCategory(pull)] += 1;
-    return counts;
-  }, { failed: 0, running: 0, passed: 0, "no-checks": 0 });
-  const renovateCheckFilterOptions = [
-    { label: `All pipeline states (${scheduledRenovateUpdates.length})`, value: "all" },
-    { label: `Failed or cancelled (${renovateCheckCounts.failed})`, value: "failed" },
-    { label: `Running (${renovateCheckCounts.running})`, value: "running" },
-    { label: `Passed (${renovateCheckCounts.passed})`, value: "passed" },
-    { label: `No checks (${renovateCheckCounts["no-checks"]})`, value: "no-checks" },
-  ];
-  const selectedRenovateCheckFilter = renovateCheckFilterOptions.find((option) => option.value === renovateCheckFilter) ?? renovateCheckFilterOptions[0];
-  const visibleRenovateUpdates = renovateCheckFilter === "all" ? scheduledRenovateUpdates : scheduledRenovateUpdates.filter((pull) => renovateCheckCategory(pull) === renovateCheckFilter);
-  const routineRenovateTotal = Math.max(0, overview.renovate.total - overview.renovate.unassignedTotal);
-
+  const scheduledRenovateUpdates = sortRenovateUpdates(overview.renovate.pulls);
+  const majorRenovateTotal = scheduledRenovateUpdates.filter(isMajorRenovateUpdate).length;
+  const renovatePipelineFilterOptions = renovateCheckFilterOptions(scheduledRenovateUpdates);
+  const selectedRenovateCheckFilter = renovatePipelineFilterOptions.find((option) => option.value === renovateCheckFilter) ?? renovatePipelineFilterOptions[0];
+  const visibleRenovateUpdates = filterRenovateUpdatesByCheck(scheduledRenovateUpdates, renovateCheckFilter);
   if (!overview.repositories.length) {
     return (
       <ContentLayout header={<Header variant="h1" actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} /><Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}>{greeting}, {viewerFirstName(overview.viewer)}!</Header>}>
-        <Container><EmptyState title="No repositories selected" detail="Choose repositories in Workspace settings. UDS Scout will not aggregate other repositories available to your GitHub token." /><Box textAlign="center"><span className="workspace-primary-action"><Button onClick={() => navigate("/settings/repositories")} variant="primary">Manage GitHub repositories</Button></span></Box></Container>
+        <Container><EmptyState title="No repositories selected" detail="Choose repositories in Workspace settings. UDS Scout will not aggregate other repositories available to your GitHub token." /><Box textAlign="center"><PrimaryActionButton onClick={() => navigate("/settings/repositories")}>Manage GitHub repositories</PrimaryActionButton></Box></Container>
       </ContentLayout>
     );
   }
 
   const cards: Record<OverviewCardId, React.ReactNode> = {
     "pull-requests": <MetricCard title="Waiting on me" value={overview.myWork.waitingOnMe.length} description={overview.myWork.waitingOnMe.length ? "Reviews or changes need your attention." : "No reviews or changes need you."} onDetails={() => openDrawer({ type: "my-work", queue: "waiting-on-me" })} indicator={overview.myWork.waitingOnMe.length ? { type: "warning", label: "Needs you" } : undefined} />,
-    renovate: showWeeklyRenovateReview ? (
+    renovate: (
       <MetricCard
-        title="Renovate review"
-        value={overview.renovate.total}
-        description={renovateCheckCounts.failed
-          ? `${renovateCheckCounts.failed} ${renovateCheckCounts.failed === 1 ? "update has" : "updates have"} failed or cancelled checks.`
+        title="Major Renovate updates"
+        value={majorRenovateTotal}
+        description={majorRenovateTotal
+          ? `${majorRenovateTotal} of ${overview.renovate.total} open ${overview.renovate.total === 1 ? "update includes" : "updates include"} a major version change.`
           : overview.renovate.total
-            ? `${overview.renovate.total} open ${overview.renovate.total === 1 ? "update is" : "updates are"} scheduled for review today.`
-            : "No open updates need review today."}
-        info={<PanelInfo header="Renovate review">Today is the configured review day, so this card counts all open Renovate updates and the review table evaluates every check reported for each latest commit, including non-required checks. Outside the review day, the card returns to showing only elevated blockers and direct requests.</PanelInfo>}
-        onDetails={jumpToRenovateReview}
-        warningHighlight={overview.renovate.total > 0}
-        indicator={renovateCheckCounts.failed
-          ? { type: "error", label: `${renovateCheckCounts.failed} ${renovateCheckCounts.failed === 1 ? "update has" : "updates have"} failed or cancelled checks` }
-          : overview.renovate.total
-            ? { type: "warning", label: "Scheduled review available" }
-            : undefined}
+            ? `No major changes detected across ${overview.renovate.total} open ${overview.renovate.total === 1 ? "update" : "updates"}.`
+            : "No open Renovate updates."}
+        info={<PanelInfo header="Major Renovate updates">This card counts only pull requests that Renovate identifies as major or that contain an explicit leading-version increase. View details opens a focused list of those pull requests, with a link to the full Renovate table.</PanelInfo>}
+        onDetails={() => openDrawer({ type: "renovate", majorOnly: true })}
+        errorValue={majorRenovateTotal > 0}
+        indicator={majorRenovateTotal ? { type: "warning", label: "Major version review available" } : undefined}
       />
-    ) : (
-      <MetricCard title="Renovate attention" value={overview.renovate.unassignedTotal} description={overview.renovate.unassignedTotal ? routineRenovateTotal ? `${routineRenovateTotal} routine ${routineRenovateTotal === 1 ? "update can" : "updates can"} wait.` : "Elevated updates need manual attention." : `${overview.renovate.total} routine ${overview.renovate.total === 1 ? "update can" : "updates can"} wait.`} info={<PanelInfo header="Renovate attention">Routine updates stay informational. UDS Scout elevates only observable blockers, direct assignments or review requests, failing required checks, conflicts, and configured priority labels. Pull requests labeled stale are excluded.</PanelInfo>} onDetails={() => openDrawer({ type: "renovate", unassignedOnly: true })} indicator={overview.renovate.unassignedTotal ? { type: "warning", label: "Manual action required" } : undefined} />
     ),
     issues: <MetricCard title="Issues assigned to me" value={overview.myWork.assignedIssues.length} description={overview.myWork.assignedIssues.length ? "Assigned issues need follow-up." : "No assigned issues need action."} onDetails={() => openDrawer({ type: "my-work", queue: "assigned-issues" })} />,
     pipelines: <MetricCard title="Workflow failures" value={overview.metrics.pipelineFailures ? `${overview.metrics.pipelineFailures} unresolved` : "None"} description={primaryFailureContext} onDetails={() => openDrawer({ type: "pipelines" })} attention={overview.workflowFailures.some((failure) => failure.defaultBranch || failure.blocksPullRequest)} indicator={overview.metrics.pipelineFailures ? { type: "error", label: "Needs investigation" } : undefined} />,
@@ -413,12 +387,13 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
   };
 
   return (
+    <>
     <ContentLayout
       header={
         <Header
           variant="h1"
           description="Scout tells you what matters across all your repositories. GitHub only tells you what's happening inside one. Go Fight Win!"
-          actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} />{customizeCardsOpen ? <span className="customize-cards-done"><Button iconName="check" variant="primary" onClick={() => setCustomizeCardsOpen(false)}>Done</Button></span> : <Button iconName="drag-indicator" onClick={() => setCustomizeCardsOpen(true)}>Customize cards</Button>}<Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}
+          actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} />{customizeCardsOpen ? <PrimaryActionButton iconName="check" onClick={() => setCustomizeCardsOpen(false)}>Done</PrimaryActionButton> : <Button iconName="drag-indicator" onClick={() => setCustomizeCardsOpen(true)}>Customize cards</Button>}<Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}
         >
           {greeting}, {viewerFirstName(overview.viewer)}!
         </Header>
@@ -443,11 +418,11 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
           }]} />
         ) : null}
 
-        <Table
+        <div id="my-work-today" className="overview-scroll-target"><Table
           variant="container"
           stickyHeader
           trackBy="id"
-          header={<Header variant="h2" description="Next actions, blockers, and handoffs." info={<PanelInfo header="My work today">Includes pull requests waiting on you, blocked work, merge-ready work, your pull requests waiting on others, human-created work needing ownership, and assigned issues. Routine automation and pull requests labeled stale are excluded.</PanelInfo>} actions={overview.myWork.assignedIssues.length || showWeeklyRenovateReview ? <SpaceBetween direction="horizontal" size="s">{overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : null}{showWeeklyRenovateReview ? <button type="button" className="renovate-review-beacon" aria-label="Jump to Renovate review" title="Renovate review is available" onClick={jumpToRenovateReview} /> : null}</SpaceBetween> : undefined}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
+          header={<Header variant="h2" description="Next actions, blockers, and handoffs." info={<PanelInfo header="My work today">Includes pull requests waiting on you, blocked work, merge-ready work, your pull requests waiting on others, human-created work needing ownership, and assigned issues. Routine automation and pull requests labeled stale are excluded.</PanelInfo>} actions={<SpaceBetween direction="horizontal" size="s">{overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : null}<button type="button" className={`renovate-review-beacon${showWeeklyRenovateReview ? "" : " renovate-review-beacon-inactive"}`} aria-label={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} title={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} onClick={showWeeklyRenovateReview ? jumpToRenovateReview : () => setRenovateReviewVisibleForToday(true, true)} /></SpaceBetween>}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
           items={workQueue}
           columnDefinitions={[
             { id: "work", header: "Work", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
@@ -457,7 +432,7 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
             { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, overview.generatedAt) },
           ]}
           empty={<EmptyState title="No action required" detail="Your selected-repository queue is clear." />}
-        />
+        /></div>
 
         {briefingItems.length ? (
           <Container header={<Header variant="h2" description="Changes detected in the last 24 hours." actions={<Button onClick={() => openDrawer({ type: "briefing", since: activeBriefingSince })}>View details</Button>}><span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({briefingItems.length})</span></span></Header>}>
@@ -480,22 +455,13 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
 
         {showWeeklyRenovateReview ? (
           <div id="renovate-review" className="renovate-review-section">
-            <Table
-              variant="container"
-              stickyHeader
-              trackBy="id"
-              filter={<div className="renovate-review-filter"><Select selectedOption={selectedRenovateCheckFilter} options={renovateCheckFilterOptions} onChange={({ detail }) => setRenovateCheckFilter(detail.selectedOption.value as RenovateCheckFilter)} /></div>}
-              header={<Header variant="h2" description="Failed or cancelled checks first, then running, passed, and updates with no checks." info={<PanelInfo header="Renovate review">This scheduled queue includes all open Renovate pull requests. Use the pipeline filter to focus on failures, running checks, passed checks, or updates with no reported checks.</PanelInfo>} actions={<Button onClick={() => navigate("/renovate")}>Open full list</Button>}><span className="section-heading">Renovate review <span className="section-heading-count">({visibleRenovateUpdates.length}{renovateCheckFilter === "all" ? "" : ` of ${scheduledRenovateUpdates.length}`})</span></span></Header>}
+            <RenovateUpdatesTable
+              referenceTime={overview.generatedAt}
+              openDrawer={openDrawer}
+              filter={<div className="renovate-review-filter"><Select selectedOption={selectedRenovateCheckFilter} options={renovatePipelineFilterOptions} onChange={({ detail }) => setRenovateCheckFilter(detail.selectedOption.value as RenovateCheckFilter)} /></div>}
+              header={<Header variant="h2" description="Major version updates first, then failed or cancelled, running, passed, and updates with no checks." info={<PanelInfo header="Renovate review">This queue includes all open Renovate pull requests. It appears on the scheduled review day or when shown manually for today.</PanelInfo>} actions={<SpaceBetween direction="horizontal" size="s"><Button onClick={() => setRenovateReviewVisibleForToday(false)}>Hide review</Button><Button onClick={() => navigate("/renovate?view=all")}>Open full list</Button></SpaceBetween>}><span className="section-heading">Renovate review <span className="section-heading-count">({visibleRenovateUpdates.length}{renovateCheckFilter === "all" ? "" : ` of ${scheduledRenovateUpdates.length}`})</span></span></Header>}
               items={visibleRenovateUpdates}
-              columnDefinitions={[
-                { id: "update", header: "Update", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
-                { id: "labels", header: "Type / labels", cell: (item) => item.labels.length ? <div className="renovate-labels">{item.labels.map((label) => <Badge color="grey" key={label.name}>{label.name}</Badge>)}</div> : <Box color="text-body-secondary">Unlabeled</Box> },
-                { id: "pipeline", header: "Pipeline / checks", cell: (item) => <RenovateCheckStatus pull={item} /> },
-                { id: "approvals", header: "Approvals", cell: (item) => <RenovateApprovalStatus pull={item} /> },
-                { id: "state", header: "PR status", cell: pullWorkflowStatus },
-                { id: "opened", header: "Opened", cell: (item) => relativeTime(item.createdAt, overview.generatedAt) },
-              ]}
-              empty={<EmptyState title="No matching Renovate updates" detail={renovateCheckFilter === "all" ? "Tracked dependencies are current. Nothing needs review." : "No updates match this pipeline state."} />}
+              emptyDetail={renovateCheckFilter === "priority" ? "No failed or major-version updates are open." : renovateCheckFilter === "all" ? "Tracked dependencies are current. Nothing needs review." : renovateCheckFilter === "major" ? "No major version updates are open." : "No updates match this pipeline state."}
             />
           </div>
         ) : null}
@@ -505,16 +471,31 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
           stickyHeader
           stripedRows
           trackBy="id"
-          header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Attention across selected repositories." info={<PanelInfo header="Repository attention">Action required means an observable failure or work waiting on you. Needs attention covers blockers, merge-ready work, and unowned human pull requests. Monitor is non-default-branch activity worth watching. Routine automation and pull requests labeled stale do not elevate repository attention.</PanelInfo>}>Repository status</Header>}
+          header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Attention across selected repositories." info={<PanelInfo header="Repository attention">Action required means an observable failure or work waiting on you. Needs attention covers blockers, merge-ready work, and unowned human pull requests. Security appears as an additional repository context signal, with incomplete visibility kept explicit. Routine automation and pull requests labeled stale do not elevate repository attention.</PanelInfo>}>Repository status</Header>}
           items={overview.repositories}
           columnDefinitions={[
             { id: "repository", header: "Repository", cell: (item) => <SpaceBetween size="xxs"><Link href={`/repositories/${item.fullName}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "repository", repository: item }); }} fontSize="body-m">{item.name}</Link><Box color="text-body-secondary">{item.fullName.split("/")[0]}</Box></SpaceBetween>, sortingField: "name" },
-            { id: "health", header: "Attention", cell: (item) => <SpaceBetween size="xxs">{repositoryHealth(item)}<Box color="text-body-secondary">{item.attention.reason}</Box></SpaceBetween> },
+            { id: "health", header: "Attention", cell: (item) => { const action = repositoryAttentionAction(item, overview); return <SpaceBetween size="xxs">{repositoryHealth(item)}{action ? <Button variant="inline-link" ariaLabel={`${action.label} for ${item.fullName}`} onClick={() => openDrawer(action.selection)}>{item.attention.reason}</Button> : <Box color="text-body-secondary">{item.attention.reason}</Box>}</SpaceBetween>; } },
             { id: "workflow", header: "Pull request workflow", cell: (item) => <SpaceBetween size="xxs"><Box>{item.workflowCounts.waitingOnMe} on you · {item.workflowCounts.blocked} blocked</Box><Box color="text-body-secondary">{item.workflowCounts.readyToMerge} ready · {item.workflowCounts.waitingOnOthers} waiting elsewhere</Box></SpaceBetween> },
             { id: "reviews", header: "Your reviews", cell: (item) => item.reviewRequests ? <Button variant="inline-link" onClick={() => openDrawer({ type: "review-requests", repository: item.fullName })}>{item.reviewRequests} requested</Button> : <Box color="text-body-secondary">None</Box> },
             { id: "pipeline", header: "Default branch workflow", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "pipelines", repository: item.fullName })}>{pipelineStatus(item.pipeline)}</Button> },
             { id: "renovate", header: "Renovate attention", cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} elevated</Badge></Link> : <Box color="text-body-secondary">Informational</Box> },
-            { id: "uds-common", header: "UDS Common", cell: (item) => item.udsCommon ? <Button variant="inline-link" onClick={() => openDrawer({ type: "uds-common", repository: item.fullName })}>{udsCommonStatus(item.udsCommon)}</Button> : <Box color="text-body-secondary">Not applicable</Box> },
+            { id: "security", header: "Security context", cell: (item) => {
+              if (!isSecurityIntelligenceRepository(item.fullName)) return <Box color="text-body-secondary">Not included</Box>;
+              const security = securityByRepository.get(item.fullName.toLowerCase());
+              if (!security || security.state === "queued" || security.state === "refreshing" || security.state === "pending") return <StatusIndicator type="in-progress">Analyzing</StatusIndicator>;
+              if (!security.applicable) return <Box color="text-body-secondary">Not applicable</Box>;
+              const hasCoverage = security.applications.some((application) => application.coverage !== "unknown") || security.artifacts.some((artifact) => artifact.securityCoverage.container !== "unavailable");
+              const complete = security.applications.every((application) => application.coverage === "full") && security.artifacts.every((artifact) => artifact.securityCoverage.container === "full");
+              const appFindings = security.findings.filter((finding) => finding.category === "application");
+              const highImpactAppCves = new Set(appFindings.filter((finding) => finding.severity === "critical" || finding.severity === "high").map((finding) => finding.vulnerabilityId));
+              const otherAppCves = new Set(appFindings.filter((finding) => finding.severity !== "critical" && finding.severity !== "high").map((finding) => finding.vulnerabilityId));
+              const appCritical = appFindings.some((finding) => finding.severity === "critical");
+              const severeDependencies = new Set(security.findings.filter((finding) => finding.category !== "application" && (finding.severity === "critical" || finding.severity === "high")).map((finding) => finding.vulnerabilityId));
+              const label = highImpactAppCves.size ? `${highImpactAppCves.size} high-impact app CVE${highImpactAppCves.size === 1 ? "" : "s"}` : otherAppCves.size ? `${otherAppCves.size} other app ${otherAppCves.size === 1 ? "advisory" : "advisories"}` : severeDependencies.size ? `${severeDependencies.size} high-impact dependency CVE${severeDependencies.size === 1 ? "" : "s"}` : !hasCoverage ? "Visibility unavailable" : !complete ? "Visibility limited" : "No immediate action";
+              return <Button variant="inline-link" onClick={() => navigate(`/repositories/${item.fullName}?tab=security`)}>{appCritical ? <StatusIndicator type="error">{label}</StatusIndicator> : highImpactAppCves.size ? <StatusIndicator type="warning">{label}</StatusIndicator> : otherAppCves.size || severeDependencies.size ? <StatusIndicator type="info">{label}</StatusIndicator> : !complete ? <StatusIndicator type="pending">{label}</StatusIndicator> : <StatusIndicator type="success">{label}</StatusIndicator>}</Button>;
+            } },
+            { id: "uds-common", header: "UDS Common", cell: (item) => item.udsCommon ? udsCommonStatusAction(item.udsCommon, () => openDrawer({ type: "uds-common", repository: item.fullName })) : <Box color="text-body-secondary">Not applicable</Box> },
           ]}
           empty={<EmptyState title="No repositories configured" detail="Add repositories to the tracked repository configuration." />}
         />
@@ -566,5 +547,30 @@ export function OverviewPage({ overview, refreshing, refreshError, gitLabWorkIte
 
       </SpaceBetween>
     </ContentLayout>
+    <Modal
+      visible={welcomeVisible}
+      onDismiss={dismissWelcome}
+      closeAriaLabel="Close welcome"
+      size="medium"
+      header="Welcome to UDS Scout"
+      footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={dismissWelcome}>Explore dashboard</Button><PrimaryActionButton onClick={startWithMyWork}>Start with My work today</PrimaryActionButton></SpaceBetween></Box>}
+    >
+      <div className="first-run-welcome">
+        {/* eslint-disable-next-line @next/next/no-img-element -- The local mascot is presented without a decorative container. */}
+        <img className="first-run-welcome-logo" src="/doug-lg.svg" alt="Doug, the UDS Scout mascot" />
+        <SpaceBetween size="m">
+          <Box>Scout reduces the status gathering that comes with maintaining packages, so you can focus on the next decision.</Box>
+          <SpaceBetween size="xs">
+            <Box variant="strong">Start with what needs action</Box>
+            <Box color="text-body-secondary">Check <Box variant="strong" display="inline">My work today</Box> first when it has items, then review dashboard panels marked red or yellow.</Box>
+          </SpaceBetween>
+          <div className="first-run-renovate-tip">
+            <button type="button" className="first-run-renovate-logo" aria-label="Show Renovate review for today" onClick={() => { dismissWelcome(); setRenovateReviewVisibleForToday(true, true); }} />
+            <Box color="text-body-secondary">Select the Renovate logo at any time to open a focused review of failed or major-version updates.</Box>
+          </div>
+        </SpaceBetween>
+      </div>
+    </Modal>
+    </>
   );
 }

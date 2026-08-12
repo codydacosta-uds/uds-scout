@@ -3,6 +3,9 @@
 .next
 node_modules
 out
+coverage
+playwright-report
+test-results
 .env
 .env.*
 *.log

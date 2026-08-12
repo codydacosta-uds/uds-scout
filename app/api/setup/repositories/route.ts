@@ -3,7 +3,7 @@ import { apiError, clearGitHubCache, currentGitHubViewer, githubAllPages, RawRep
 import { gitlabAccessibleProjects, gitlabApiError, GitLabApiError, gitlabProjectPreflight, gitlabTokenStatus } from "@/lib/gitlab";
 import { readLocalSettings, writeLocalSettings } from "@/lib/local-settings";
 import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
-import { DEFAULT_WORKSPACE_PRESETS } from "@/lib/repository-constants";
+import { workspacePresetsWithConfig } from "@/lib/repository-constants";
 import { configuredRepositorySource } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     const viewer = currentGitHubViewer();
     const existing = readLocalSettings(viewer);
     const configured = configuredRepositorySource();
-    const body = await request.json() as { repositories?: unknown; gitlabProjects?: unknown; gitlabDefaultProject?: unknown };
+    const body = await request.json() as { repositories?: unknown; gitlabEnabled?: unknown; gitlabProjects?: unknown; gitlabDefaultProject?: unknown };
     const requested = configured.source === "environment"
       ? configured.repositories
       : Array.isArray(body.repositories)
@@ -127,10 +127,11 @@ export async function POST(request: NextRequest) {
     }
 
     const renovateReviewDay = existing?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY;
-    const workspacePresets = existing?.workspacePresets ?? DEFAULT_WORKSPACE_PRESETS;
-    writeLocalSettings({ repositories, setupCompleted: true, gitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets }, viewer);
+    const workspacePresets = existing?.workspacePresets ?? [];
+    const gitlabEnabled = typeof body.gitlabEnabled === "boolean" ? body.gitlabEnabled : existing?.gitlabEnabled ?? true;
+    writeLocalSettings({ repositories, setupCompleted: true, gitlabEnabled, gitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets }, viewer);
     clearGitHubCache();
-    return NextResponse.json({ repositories, gitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets });
+    return NextResponse.json({ repositories, gitlabProjects, gitlabDefaultProject, renovateReviewDay, workspacePresets: workspacePresetsWithConfig(workspacePresets) });
   } catch (error) {
     const failure = error instanceof GitLabApiError ? gitlabApiError(error) : apiError(error);
     return NextResponse.json({ error: failure.message }, { status: failure.status });

@@ -15,6 +15,15 @@ import { loadRepositoryOperations } from "@/lib/github-operations";
 export const runtime = "nodejs";
 
 type RunsResponse = { total_count: number; workflow_runs: RawRun[] };
+type RawRelease = {
+  id: number;
+  tag_name: string;
+  name: string | null;
+  html_url: string;
+  published_at: string | null;
+  draft: boolean;
+  prerelease: boolean;
+};
 type RawIssue = {
   id: number;
   number: number;
@@ -42,18 +51,27 @@ export async function GET(request: NextRequest) {
 
   try {
     const viewer = await githubRequest<{ login: string }>("/user", 5 * 60_000);
-    const [details, openPulls, closedPulls, runsResult, issueResults] = await Promise.all([
+    const [details, openPulls, closedPulls, runsResult, issueResults, releaseResults] = await Promise.all([
       githubRequest<RawRepo>(`/repos/${repository}`),
       loadRepositoryOperations(repository, viewer.login).then((result) => result.pulls).catch(async () => (await githubAllPages<RawPull>(`/repos/${repository}/pulls?state=open&sort=updated&direction=desc`, 10)).map(presentPull)),
       githubAllPages<RawPull>(`/repos/${repository}/pulls?state=closed&sort=updated&direction=desc`, 20),
       githubRequest<RunsResponse>(`/repos/${repository}/actions/runs?per_page=30`).catch(() => null),
       githubAllPages<RawIssue>(`/repos/${repository}/issues?state=open&sort=updated&direction=desc`, 10).catch(() => []),
+      githubRequest<RawRelease[]>(`/repos/${repository}/releases?per_page=30`, 5 * 60_000).catch(() => []),
     ]);
 
     const activeOpenPulls = openPulls.filter((pull) => !pull.workflow.ignored);
     const merged = closedPulls.filter((pull) => pull.merged_at);
     return NextResponse.json({
       repository: presentRepo(details),
+      releases: releaseResults.filter((release) => !release.draft).map((release) => ({
+        id: release.id,
+        tag: release.tag_name,
+        name: release.name ?? release.tag_name,
+        url: release.html_url,
+        publishedAt: release.published_at,
+        prerelease: release.prerelease,
+      })),
       pullStats: {
         open: activeOpenPulls.length,
         draft: activeOpenPulls.filter((pull) => pull.draft).length,

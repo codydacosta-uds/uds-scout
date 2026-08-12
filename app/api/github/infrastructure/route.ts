@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import type { InfrastructureExplorerData } from "@/components/infrastructure-types";
 import { apiError, githubRequest } from "@/lib/github";
+import { SONIC_REPOSITORY } from "@/lib/repository-constants";
 import { analyzeSonicDeployment } from "@/lib/sonic-deployment";
 import { analyzeTerraform } from "@/lib/terraform-explorer";
+import { isTrackedRepository } from "@/lib/tracked-repositories";
 
 export const runtime = "nodejs";
 
-const REPOSITORY = "nswccd-devsecops/sonic-swf-iac";
+const REPOSITORY = SONIC_REPOSITORY;
 const BRANCH = "main";
 const ROOT_PATH = "iac/swf";
 const ANALYSIS_TTL = 5 * 60_000;
@@ -40,6 +42,10 @@ async function inBatches<T, R>(items: T[], size: number, callback: (item: T) => 
 }
 
 export async function GET() {
+  if (!isTrackedRepository(REPOSITORY)) {
+    return NextResponse.json({ error: "Infrastructure Explorer is available only when the SONIC repository is selected in this workspace." }, { status: 403 });
+  }
+
   try {
     const tree = await githubRequest<TreeResponse>(
       `/repos/${REPOSITORY}/git/trees/${BRANCH}?recursive=1`,
