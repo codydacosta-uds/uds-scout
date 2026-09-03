@@ -21,7 +21,9 @@ import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
+import Textarea from "@cloudscape-design/components/textarea";
 import { useEffect, useState } from "react";
+import { isMyWorkItemHidden, MY_WORK_SORT_OPTIONS, myWorkItemFingerprint, myWorkItemKey, personalWorkReferenceForIssue, personalWorkReferenceForPull, personalWorkReferenceForSecurityFinding, personalWorkReferenceForWorkflow, personalWorkReferenceKey, removeReferencesFromPersonalWork, updatePersonalWorkNote, type MyWorkPull, type MyWorkSort, type PersonalWorkReference, type PersonalWorkState } from "@/lib/my-work";
 import { renovateReviewDayForDate } from "@/lib/renovate-review";
 import { isSecurityIntelligenceRepository } from "@/lib/repository-constants";
 import { PrimaryActionButton } from "./action-ui";
@@ -29,8 +31,8 @@ import { InfoPopover as PanelInfo } from "./info-ui";
 import type { DrawerSelection } from "./operations-types";
 import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryAttentionAction, repositoryHealth, udsCommonStatusAction } from "./operations-ui";
 import { filterRenovateUpdatesByCheck, isMajorRenovateUpdate, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
-import type { SecurityWorkspace } from "./security-types";
-import type { GitLabWorkItems, Overview, RepositoryCatalog } from "./types";
+import type { RepositorySecurity, SecurityFinding, SecurityWorkspace, Vulnerability } from "./security-types";
+import type { GitLabWorkItems, Issue, Overview, PipelineRun, PullRequest, RepositoryCatalog, WorkflowFailure } from "./types";
 
 function greetingForHour(hour: number) {
   if (hour >= 5 && hour < 12) return "Good morning";
@@ -143,6 +145,93 @@ const overviewCardOrderKey = (viewer: string) => `uds-scout:${viewer.toLowerCase
 const legacyOverviewCardOrderKey = (viewer: string) => `d2d-operations:${viewer.toLowerCase()}:overview-card-order`;
 const renovateReviewVisibilityKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:renovate-review-visibility`;
 const firstRunWelcomeKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:overview-welcome:v1`;
+const udsCommonAttentionDismissalKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:uds-common-attention:v1`;
+const myWorkSortKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:my-work-sort:v1`;
+
+function myWorkReason(pull: MyWorkPull, addedByViewerOnly: boolean) {
+  if (addedByViewerOnly) return "Added by you for personal follow-up.";
+  if (pull.workflow.state === "needs-review" && !pull.assignees.length) return "This human-created pull request needs an owner.";
+  if (pull.workflow.state === "waiting-on-others" && pull.workflow.authoredByViewer) return "Your pull request needs review or approval.";
+  if (pull.workflow.state === "ready-to-merge") return "Approvals and required checks are complete.";
+  return pull.workflow.reason;
+}
+
+function myWorkWaitingOn(pull: MyWorkPull) {
+  if (pull.workflow.state === "needs-review" && !pull.assignees.length) return { label: "Owner", detail: "Owner" };
+  if (pull.workflow.waitingOn.length) {
+    return {
+      label: pull.workflow.waitingOn.map((person) => person.split("/").at(-1) ?? person).join(", "),
+      detail: pull.workflow.waitingOn.join(", "),
+    };
+  }
+  if (pull.workflow.checks.failing || pull.workflow.checks.pending) return { label: "Required checks", detail: "Required checks" };
+  if (pull.workflow.progress === "merge-conflict") return { label: "Source branch update", detail: "Source branch update" };
+  if (pull.workflow.state === "ready-to-merge") return { label: "Merge decision", detail: "Merge decision" };
+  return null;
+}
+
+type MyWorkView = "all" | "recommended" | "added" | "pull-request" | "issue" | "workflow" | "security-finding";
+type MyWorkStatusType = "error" | "warning" | "success" | "info" | "pending" | "in-progress" | "stopped";
+
+type MyWorkQueueItem = {
+  key: string;
+  reference: PersonalWorkReference;
+  kind: PersonalWorkReference["kind"];
+  repository: string;
+  title: string;
+  detail: string;
+  url: string;
+  status: string;
+  statusType: MyWorkStatusType;
+  reason: string;
+  waitingOn: string | null;
+  updatedAt: string;
+  priority: number;
+  recommended: boolean;
+  addedByViewer: boolean;
+  note: string | null;
+  pull?: MyWorkPull;
+  issue?: Issue & { repository: string };
+  run?: PipelineRun & { repository: string };
+  failure?: WorkflowFailure;
+  security?: { finding: SecurityFinding; vulnerability: Vulnerability; repository: RepositorySecurity };
+};
+
+const MY_WORK_VIEW_OPTIONS: { label: string; value: MyWorkView }[] = [
+  { label: "All work", value: "all" },
+  { label: "Scout recommendations", value: "recommended" },
+  { label: "Added by me", value: "added" },
+  { label: "Pull requests", value: "pull-request" },
+  { label: "Issues", value: "issue" },
+  { label: "Workflows", value: "workflow" },
+  { label: "Security findings", value: "security-finding" },
+];
+
+function myWorkStatusForPull(pull: PullRequest): { status: string; statusType: MyWorkStatusType; priority: number } {
+  if (pull.workflow.state === "blocked") return { status: pull.workflow.label, statusType: pull.workflow.checks.failing ? "error" : "warning", priority: 0 };
+  if (pull.workflow.state === "waiting-on-me" || pull.workflow.state === "needs-review") return { status: pull.workflow.label, statusType: "warning", priority: 1 };
+  if (pull.workflow.state === "ready-to-merge") return { status: pull.workflow.label, statusType: "success", priority: 2 };
+  if (pull.workflow.state === "waiting-on-others" || pull.workflow.state === "needs-approval") return { status: pull.workflow.label, statusType: "info", priority: 4 };
+  return { status: pull.workflow.label, statusType: "pending", priority: 5 };
+}
+
+function pipelineStatusForMyWork(run: PipelineRun) {
+  if (run.status !== "completed") return "Running";
+  if (run.conclusion === "success") return "Passed";
+  if (["failure", "timed_out", "action_required", "startup_failure"].includes(run.conclusion ?? "")) return "Failed";
+  return run.conclusion ?? "Unknown";
+}
+
+function udsCommonAttentionFingerprint(overview: Overview) {
+  if (!overview.udsCommon.needsAttention) return null;
+  return JSON.stringify({
+    latestVersion: overview.udsCommon.latestVersion,
+    repositories: overview.udsCommon.repositories
+      .filter((repository) => repository.status !== "current")
+      .map((repository) => ({ repository: repository.repository, status: repository.status, versions: [...repository.versions].sort() }))
+      .sort((left, right) => left.repository.localeCompare(right.repository)),
+  });
+}
 
 function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -180,9 +269,11 @@ function SortableOverviewCard({ id, label, customizing, children }: {
   );
 }
 
-export function OverviewPage({ overview, securityWorkspace, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
+export function OverviewPage({ overview, securityWorkspace, personalWorkState, onPersonalWorkStateChange, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
   overview: Overview;
   securityWorkspace: SecurityWorkspace | null;
+  personalWorkState: PersonalWorkState;
+  onPersonalWorkStateChange: (state: PersonalWorkState, confirmation?: string) => void;
   refreshing: boolean;
   refreshError: string | null;
   gitLabWorkItems: GitLabWorkItems | null;
@@ -199,6 +290,13 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
   const [showWeeklyRenovateReview, setShowWeeklyRenovateReview] = useState(false);
   const [renovateCheckFilter, setRenovateCheckFilter] = useState<RenovateCheckFilter>("priority");
   const [welcomeVisible, setWelcomeVisible] = useState(false);
+  const [udsCommonWarningVisible, setUdsCommonWarningVisible] = useState(false);
+  const [myWorkSort, setMyWorkSort] = useState<MyWorkSort>("priority");
+  const [myWorkView, setMyWorkView] = useState<MyWorkView>("all");
+  const [selectedMyWork, setSelectedMyWork] = useState<MyWorkQueueItem[]>([]);
+  const [noteReference, setNoteReference] = useState<PersonalWorkReference | null>(null);
+  const [noteValue, setNoteValue] = useState("");
+  const [hiddenMyWorkOpen, setHiddenMyWorkOpen] = useState(false);
   const [cardOrder, setCardOrder] = useState<OverviewCardId[]>(DEFAULT_OVERVIEW_CARD_ORDER);
   const [customizeCardsOpen, setCustomizeCardsOpen] = useState(false);
   const cardDragSensors = useSensors(
@@ -217,6 +315,7 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
     : overview.udsCore.comparison === "behind"
       ? "UDS Core version needs alignment"
       : null;
+  const udsCommonWarningFingerprint = udsCommonAttentionFingerprint(overview);
 
   useEffect(() => {
     const updateLocalTime = () => {
@@ -237,6 +336,38 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
       setWelcomeVisible(true);
     }
   }, [overview.viewer.login]);
+
+  useEffect(() => {
+    const requestedView = new URLSearchParams(window.location.search).get("myWork");
+    if (MY_WORK_VIEW_OPTIONS.some((option) => option.value === requestedView)) setMyWorkView(requestedView as MyWorkView);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const savedSort = window.localStorage.getItem(myWorkSortKey(overview.viewer.login));
+      setMyWorkSort(MY_WORK_SORT_OPTIONS.some((option) => option.value === savedSort) ? savedSort as MyWorkSort : "priority");
+    } catch {
+      setMyWorkSort("priority");
+    }
+  }, [overview.viewer.login]);
+
+  useEffect(() => {
+    const dismissalKey = udsCommonAttentionDismissalKey(overview.viewer.login);
+    if (!udsCommonWarningFingerprint) {
+      setUdsCommonWarningVisible(false);
+      try {
+        window.localStorage.removeItem(dismissalKey);
+      } catch {
+        // Leave the resolved warning hidden when browser storage is unavailable.
+      }
+      return;
+    }
+    try {
+      setUdsCommonWarningVisible(window.localStorage.getItem(dismissalKey) !== udsCommonWarningFingerprint);
+    } catch {
+      setUdsCommonWarningVisible(true);
+    }
+  }, [overview.viewer.login, udsCommonWarningFingerprint]);
 
   useEffect(() => {
     try {
@@ -293,6 +424,66 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
     window.setTimeout(() => document.getElementById("my-work-today")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }), 50);
   };
 
+  const dismissUdsCommonWarning = () => {
+    if (udsCommonWarningFingerprint) {
+      try {
+        window.localStorage.setItem(udsCommonAttentionDismissalKey(overview.viewer.login), udsCommonWarningFingerprint);
+      } catch {
+        // Keep the warning dismissed for this view when browser storage is unavailable.
+      }
+    }
+    setUdsCommonWarningVisible(false);
+  };
+
+  const updateMyWorkSort = (sort: MyWorkSort) => {
+    setMyWorkSort(sort);
+    try {
+      window.localStorage.setItem(myWorkSortKey(overview.viewer.login), sort);
+    } catch {
+      // Keep the selected sort for this view when browser storage is unavailable.
+    }
+  };
+
+  const removeSelectedMyWork = (items: MyWorkQueueItem[]) => {
+    const withoutPersonalReferences = removeReferencesFromPersonalWork(personalWorkState, items.map((item) => item.reference));
+    const hiddenRecommendations = { ...withoutPersonalReferences.hiddenRecommendations };
+    items.forEach((item) => {
+      if (item.recommended && item.pull) hiddenRecommendations[myWorkItemKey(item.pull)] = myWorkItemFingerprint(item.pull);
+    });
+    onPersonalWorkStateChange(
+      { ...withoutPersonalReferences, hiddenRecommendations },
+      `${items.length} ${items.length === 1 ? "item was" : "items were"} removed from My work today.`,
+    );
+    setSelectedMyWork([]);
+  };
+
+  const editSelectedMyWorkNote = (item: MyWorkQueueItem) => {
+    setNoteReference(item.reference);
+    setNoteValue(item.note ?? "");
+  };
+
+  const saveMyWorkNote = () => {
+    if (!noteReference) return;
+    const referenceExists = personalWorkState.references.some((reference) => personalWorkReferenceKey(reference) === personalWorkReferenceKey(noteReference));
+    const stateWithReference = referenceExists ? personalWorkState : { ...personalWorkState, references: [...personalWorkState.references, noteReference] };
+    onPersonalWorkStateChange(updatePersonalWorkNote(stateWithReference, noteReference, noteValue), "The personal follow-up note was saved.");
+    setNoteReference(null);
+    setNoteValue("");
+  };
+
+  const restoreMyWorkItem = (pull: MyWorkPull) => {
+    const hiddenRecommendations = { ...personalWorkState.hiddenRecommendations };
+    delete hiddenRecommendations[myWorkItemKey(pull)];
+    onPersonalWorkStateChange({ ...personalWorkState, hiddenRecommendations }, "The recommendation was restored to My work today.");
+  };
+
+  const restoreAllMyWork = (pulls: MyWorkPull[]) => {
+    const hiddenRecommendations = { ...personalWorkState.hiddenRecommendations };
+    pulls.forEach((pull) => delete hiddenRecommendations[myWorkItemKey(pull)]);
+    onPersonalWorkStateChange({ ...personalWorkState, hiddenRecommendations }, `${pulls.length} ${pulls.length === 1 ? "recommendation was" : "recommendations were"} restored to My work today.`);
+    setHiddenMyWorkOpen(false);
+  };
+
   const setRenovateReviewVisibleForToday = (visible: boolean, scrollToReview = false) => {
     try {
       window.localStorage.setItem(renovateReviewVisibilityKey(overview.viewer.login), JSON.stringify({ date: localDateKey(new Date()), visible }));
@@ -317,14 +508,107 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
         ? `The default branch for ${primaryFailure.repository.split("/").pop()} is failing.`
         : `${primaryFailure.branch ?? "A non-default branch"} is failing in ${primaryFailure.repository.split("/").pop()}.`
     : passingPipelines ? "Default branch workflows are passing." : "No workflow failures need attention.";
-  const workQueue = [...new Map([
+  const recommendedWorkItems = [...new Map([
     ...overview.myWork.waitingOnMe,
     ...overview.myWork.blocked,
     ...overview.myWork.readyToMerge,
     ...overview.myWork.waitingOnOthers,
     ...overview.myWork.needsOwnership,
-  ].map((pull) => [pull.id, pull])).values()];
+  ].map((pull) => [myWorkItemKey(pull), pull])).values()];
+  const recommendedMyWorkKeys = new Set(recommendedWorkItems.map(myWorkItemKey));
+  const referencesByKey = new Map(personalWorkState.references.map((reference) => [personalWorkReferenceKey(reference), reference]));
+  const referenceForPull = (pull: MyWorkPull) => personalWorkReferenceForPull(pull, overview.generatedAt);
+  const referenceForIssue = (issue: Issue & { repository: string }) => personalWorkReferenceForIssue(issue, overview.generatedAt);
+  const referenceForRun = (run: PipelineRun & { repository: string }) => personalWorkReferenceForWorkflow(run, overview.generatedAt);
+  const pullByReference = new Map(overview.pullRequests.map((pull) => [personalWorkReferenceKey(referenceForPull(pull)), pull]));
+  const issueByReference = new Map(overview.issues.map((issue) => [personalWorkReferenceKey(referenceForIssue(issue)), issue]));
+  const runByReference = new Map(overview.pipelineRuns.map((run) => [personalWorkReferenceKey(referenceForRun(run)), run]));
+  const securityByReference = new Map((securityWorkspace?.repositories ?? []).flatMap((repository) => repository.findings.map((finding) => [personalWorkReferenceKey(personalWorkReferenceForSecurityFinding(finding, overview.generatedAt)), { finding, repository }] as const)));
+  const personalMyWorkKeys = new Set(personalWorkState.references.map(personalWorkReferenceKey));
+
+  const pullQueueItem = (pull: MyWorkPull, recommended: boolean): MyWorkQueueItem => {
+    const generatedReference = referenceForPull(pull);
+    const reference = referencesByKey.get(personalWorkReferenceKey(generatedReference)) ?? generatedReference;
+    const status = myWorkStatusForPull(pull);
+    const waitingOn = myWorkWaitingOn(pull);
+    const addedByViewer = referencesByKey.has(personalWorkReferenceKey(generatedReference));
+    return { key: personalWorkReferenceKey(generatedReference), reference, kind: "pull-request", repository: pull.repository, title: pull.title, detail: `Pull request #${pull.number} · by ${pull.author}`, url: pull.url, ...status, reason: reference.note || myWorkReason(pull, addedByViewer && !recommended), waitingOn: waitingOn?.label ?? null, updatedAt: pull.updatedAt, recommended, addedByViewer, note: reference.note ?? null, pull };
+  };
+  const personalQueueItems = personalWorkState.references.flatMap((reference): MyWorkQueueItem[] => {
+    if (reference.kind === "pull-request") {
+      const pull = pullByReference.get(personalWorkReferenceKey(reference));
+      return pull ? [pullQueueItem(pull, recommendedMyWorkKeys.has(myWorkItemKey(pull)))] : [];
+    }
+    if (reference.kind === "issue") {
+      const issue = issueByReference.get(personalWorkReferenceKey(reference));
+      return issue ? [{ key: personalWorkReferenceKey(reference), reference, kind: "issue", repository: issue.repository, title: issue.title, detail: `Issue #${issue.number} · by ${issue.author}`, url: issue.url, status: "Open issue", statusType: "warning", reason: reference.note || "Added by you for personal follow-up.", waitingOn: issue.assignees?.length ? issue.assignees.join(", ") : "Owner", updatedAt: issue.updatedAt, priority: 3, recommended: false, addedByViewer: true, note: reference.note ?? null, issue }] : [];
+    }
+    if (reference.kind === "workflow") {
+      const run = runByReference.get(personalWorkReferenceKey(reference));
+      if (!run) return [];
+      const failed = pipelineStatusForMyWork(run) === "Failed";
+      const failure = overview.workflowFailures.find((candidate) => candidate.repository === run.repository && candidate.id === run.id);
+      return [{ key: personalWorkReferenceKey(reference), reference, kind: "workflow", repository: run.repository, title: run.title, detail: `${run.name} #${run.number}`, url: run.url, status: pipelineStatusForMyWork(run), statusType: run.status !== "completed" ? "in-progress" : failed ? "error" : run.conclusion === "success" ? "success" : "stopped", reason: reference.note || (failed ? "Workflow execution requires investigation." : run.status !== "completed" ? "Workflow execution is still running." : "Added by you for personal follow-up."), waitingOn: run.status !== "completed" ? "Workflow completion" : failed ? "Investigation" : null, updatedAt: run.updatedAt, priority: failed ? 0 : run.status !== "completed" ? 2 : 5, recommended: false, addedByViewer: true, note: reference.note ?? null, run, failure }];
+    }
+    const securityItem = securityByReference.get(personalWorkReferenceKey(reference));
+    if (!securityItem) return [];
+    const { finding, repository } = securityItem;
+    const vulnerability = repository.vulnerabilities[finding.vulnerabilityId];
+    if (!vulnerability) return [];
+    return [{ key: personalWorkReferenceKey(reference), reference, kind: "security-finding", repository: finding.repositoryId, title: `${vulnerability.id}: ${vulnerability.summary}`, detail: `${finding.affectedPackage} ${finding.installedVersion ?? "version unknown"}`, url: vulnerability.references[0] ?? `/repositories/${finding.repositoryId}?tab=security`, status: `${finding.severity.charAt(0).toUpperCase()}${finding.severity.slice(1)} severity`, statusType: finding.severity === "critical" ? "error" : finding.severity === "high" || finding.severity === "medium" ? "warning" : "info", reason: reference.note || (finding.fixedVersion ? `Update to ${finding.fixedVersion}.` : "Review the advisory; no fixed version is reported."), waitingOn: finding.fixedVersion ? "Package update" : "Maintainer decision", updatedAt: finding.lastSeenAt, priority: finding.severity === "critical" ? 0 : finding.severity === "high" ? 1 : 3, recommended: false, addedByViewer: true, note: reference.note ?? null, security: { finding, vulnerability, repository } }];
+  });
+  const hiddenWorkItems = recommendedWorkItems.filter((pull) => !personalMyWorkKeys.has(personalWorkReferenceKey(referenceForPull(pull))) && isMyWorkItemHidden(pull, personalWorkState.hiddenRecommendations));
+  const recommendedQueueItems = recommendedWorkItems.filter((pull) => !isMyWorkItemHidden(pull, personalWorkState.hiddenRecommendations) || personalMyWorkKeys.has(personalWorkReferenceKey(referenceForPull(pull)))).map((pull) => pullQueueItem(pull, true));
+  const workQueue = [...new Map([...recommendedQueueItems, ...personalQueueItems].map((item) => [item.key, item])).values()];
+  const filteredWorkItems = workQueue.filter((item) => myWorkView === "all" || myWorkView === "recommended" && item.recommended || myWorkView === "added" && item.addedByViewer || item.kind === myWorkView);
+  const visibleWorkItems = [...filteredWorkItems].sort((left, right) => myWorkSort === "updated" ? new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() : myWorkSort === "repository" ? left.repository.localeCompare(right.repository) || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() : myWorkSort === "status" ? left.status.localeCompare(right.status) || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() : left.priority - right.priority || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+  const selectedMyWorkKeys = new Set(selectedMyWork.map((item) => item.key));
+  const selectedCurrentMyWork = visibleWorkItems.filter((item) => selectedMyWorkKeys.has(item.key));
+  const selectedMyWorkSort = MY_WORK_SORT_OPTIONS.find((option) => option.value === myWorkSort) ?? MY_WORK_SORT_OPTIONS[0];
+  const selectedMyWorkView = MY_WORK_VIEW_OPTIONS.find((option) => option.value === myWorkView) ?? MY_WORK_VIEW_OPTIONS[0];
   const myWorkCount = workQueue.length + overview.myWork.assignedIssues.length;
+  const currentMyWorkFingerprints = JSON.stringify(recommendedWorkItems.map((pull) => [myWorkItemKey(pull), myWorkItemFingerprint(pull)]));
+
+  useEffect(() => {
+    const current = new Map(JSON.parse(currentMyWorkFingerprints) as [string, string][]);
+    const changedKeys = Object.keys(personalWorkState.hiddenRecommendations).filter((key) => current.has(key) && current.get(key) !== personalWorkState.hiddenRecommendations[key]);
+    if (!changedKeys.length) return;
+    const hiddenRecommendations = { ...personalWorkState.hiddenRecommendations };
+    changedKeys.forEach((key) => delete hiddenRecommendations[key]);
+    onPersonalWorkStateChange({ ...personalWorkState, hiddenRecommendations });
+  }, [currentMyWorkFingerprints, onPersonalWorkStateChange, personalWorkState]);
+
+  const trackedRepositoryNames = new Set(overview.repositories.map((repository) => repository.fullName.toLowerCase()));
+  const lifecycleSignature = JSON.stringify(personalWorkState.references.map((reference) => {
+    const key = personalWorkReferenceKey(reference);
+    if (!trackedRepositoryNames.has(reference.repository.toLowerCase())) return [key, "untracked"];
+    if (reference.kind === "pull-request") return [key, pullByReference.has(key) ? "open" : "closed"];
+    if (reference.kind === "issue") return [key, issueByReference.has(key) ? "open" : "closed"];
+    if (reference.kind === "workflow") return [key, runByReference.has(key) ? "active" : "missing"];
+    const securityRepository = securityWorkspace?.repositories.find((repository) => repository.repositoryId.toLowerCase() === reference.repository.toLowerCase());
+    if (!securityRepository || securityRepository.state !== "ready") return [key, "pending"];
+    return [key, securityByReference.has(key) ? "open" : "resolved"];
+  }));
+
+  useEffect(() => {
+    const lifecycle = new Map(JSON.parse(lifecycleSignature) as [string, string][]);
+    const references = personalWorkState.references.filter((reference) => !["untracked", "closed", "missing", "resolved"].includes(lifecycle.get(personalWorkReferenceKey(reference)) ?? "pending"));
+    if (references.length === personalWorkState.references.length) return;
+    onPersonalWorkStateChange({ ...personalWorkState, references });
+  }, [lifecycleSignature, onPersonalWorkStateChange, personalWorkState]);
+
+  const openMyWorkItem = (item: MyWorkQueueItem) => {
+    if (item.pull) return openDrawer({ type: "pull-request", pull: item.pull, repository: item.repository });
+    if (item.issue) return openDrawer({ type: "issue", issue: item.issue, repository: item.repository });
+    if (item.run) return openDrawer(item.failure ? { type: "workflow-failure", failure: item.failure } : { type: "pipeline-run", run: item.run, repository: item.repository });
+    if (item.security) {
+      const { finding, vulnerability, repository } = item.security;
+      const occurrences = repository.findings.filter((candidate) => candidate.vulnerabilityId === finding.vulnerabilityId);
+      const exposure = repository.applications.find((application) => application.id === finding.applicationId)?.exposure;
+      return openDrawer({ type: "security-finding", repository: item.repository, finding, vulnerability, occurrences, exposure });
+    }
+  };
+
   const scheduledRenovateUpdates = sortRenovateUpdates(overview.renovate.pulls);
   const majorRenovateTotal = scheduledRenovateUpdates.filter(isMajorRenovateUpdate).length;
   const renovatePipelineFilterOptions = renovateCheckFilterOptions(scheduledRenovateUpdates);
@@ -400,12 +684,14 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
       }
     >
       <SpaceBetween size="l">
-        {overview.capabilities.sonic && overview.udsCommon.needsAttention ? (
+        {overview.capabilities.sonic && udsCommonWarningVisible ? (
           <Flashbar items={[{
             type: "warning",
             header: `${overview.udsCommon.needsAttention} ${overview.udsCommon.needsAttention === 1 ? "repository needs" : "repositories need"} UDS Common attention`,
             content: `The latest UDS Common release is ${overview.udsCommon.latestVersion ?? "unavailable"}. Review outdated, missing, or unverifiable task includes.`,
             action: <div className="pipeline-alert-action"><Button onClick={() => openDrawer({ type: "uds-common" })}>View UDS Common status</Button></div>,
+            dismissible: true,
+            onDismiss: dismissUdsCommonWarning,
           }]} />
         ) : null}
 
@@ -421,17 +707,26 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
         <div id="my-work-today" className="overview-scroll-target"><Table
           variant="container"
           stickyHeader
-          trackBy="id"
-          header={<Header variant="h2" description="Next actions, blockers, and handoffs." info={<PanelInfo header="My work today">Includes pull requests waiting on you, blocked work, merge-ready work, your pull requests waiting on others, human-created work needing ownership, and assigned issues. Routine automation and pull requests labeled stale are excluded.</PanelInfo>} actions={<SpaceBetween direction="horizontal" size="s">{overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : null}<button type="button" className={`renovate-review-beacon${showWeeklyRenovateReview ? "" : " renovate-review-beacon-inactive"}`} aria-label={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} title={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} onClick={showWeeklyRenovateReview ? jumpToRenovateReview : () => setRenovateReviewVisibleForToday(true, true)} /></SpaceBetween>}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
-          items={workQueue}
+          wrapLines
+          trackBy="key"
+          selectionType="multi"
+          selectedItems={selectedCurrentMyWork}
+          onSelectionChange={({ detail }) => setSelectedMyWork([...detail.selectedItems])}
+          ariaLabels={{ selectionGroupLabel: "Select work items", itemSelectionLabel: ({ selectedItems }, item) => `${selectedItems.includes(item) ? "Deselect" : "Select"} ${item.title}` }}
+          header={<Header variant="h2" info={<PanelInfo header="My work today">This browser-local personal queue combines Scout recommendations with pull requests, issues, workflows, and security findings you add from other views. Select one or more items to remove them or add a private follow-up note. Scout recommendations can return when their actionable state changes; closed pull requests, closed issues, resolved findings, and unavailable old workflow runs leave the queue when Scout confirms their state.</PanelInfo>} actions={<button type="button" className={`renovate-review-beacon${showWeeklyRenovateReview ? "" : " renovate-review-beacon-inactive"}`} aria-label={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} title={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} onClick={showWeeklyRenovateReview ? jumpToRenovateReview : () => setRenovateReviewVisibleForToday(true, true)} />}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
+          filter={<div className="my-work-toolbar"><div className="my-work-filters"><div className="my-work-sort"><Select ariaLabel="Filter My work today" selectedOption={selectedMyWorkView} options={MY_WORK_VIEW_OPTIONS} onChange={({ detail }) => { setMyWorkView(detail.selectedOption.value as MyWorkView); setSelectedMyWork([]); }} /></div><div className="my-work-sort"><Select ariaLabel="Sort My work today" selectedOption={selectedMyWorkSort} options={MY_WORK_SORT_OPTIONS} onChange={({ detail }) => updateMyWorkSort(detail.selectedOption.value as MyWorkSort)} /></div></div><div className="my-work-toolbar-actions">{selectedCurrentMyWork.length === 1 ? <Button onClick={() => editSelectedMyWorkNote(selectedCurrentMyWork[0])}>{selectedCurrentMyWork[0].note ? "Edit note" : "Add note"}</Button> : null}{selectedCurrentMyWork.length ? <Button onClick={() => removeSelectedMyWork(selectedCurrentMyWork)}>{`Remove selected (${selectedCurrentMyWork.length})`}</Button> : null}{hiddenWorkItems.length ? <Button onClick={() => setHiddenMyWorkOpen(true)}>{hiddenWorkItems.length} hidden</Button> : null}{overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : null}</div></div>}
+          items={visibleWorkItems}
           columnDefinitions={[
-            { id: "work", header: "Work", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
-            { id: "state", header: "Workflow state", cell: pullWorkflowStatus },
-            { id: "why", header: "Why it matters", cell: (item) => item.workflow.reason },
-            { id: "waiting", header: "Waiting on", cell: (item) => item.workflow.waitingOn.length ? item.workflow.waitingOn.join(", ") : <Box color="text-body-secondary">—</Box> },
-            { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, overview.generatedAt) },
+            { id: "work", header: "Work item", width: "29%", minWidth: 280, cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openMyWorkItem(item); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · {item.detail}{item.addedByViewer ? " · added by me" : ""}</Box></SpaceBetween> },
+            { id: "state", header: "Status", width: "21%", minWidth: 220, cell: (item) => <StatusIndicator type={item.statusType}>{item.status}</StatusIndicator> },
+            { id: "why", header: "Why it is here", width: "25%", minWidth: 250, cell: (item) => item.reason },
+            { id: "waiting", header: "Waiting on", width: "15%", minWidth: 150, cell: (item) => item.waitingOn ?? <Box color="text-body-secondary">—</Box> },
+            { id: "updated", header: "Last updated", width: "10%", minWidth: 100, cell: (item) => relativeTime(item.updatedAt, overview.generatedAt) },
           ]}
-          empty={<EmptyState title="No action required" detail="Your selected-repository queue is clear." />}
+          empty={workQueue.length
+            ? <EmptyState title="No work matches this filter" detail="Choose another work type or queue source." />
+            : hiddenWorkItems.length ? <EmptyState title="No visible recommendations" detail="All current recommendations are hidden from your personal queue." />
+              : <EmptyState title="No action required" detail="Your selected-repository queue is clear." />}
         /></div>
 
         {briefingItems.length ? (
@@ -547,6 +842,43 @@ export function OverviewPage({ overview, securityWorkspace, refreshing, refreshE
 
       </SpaceBetween>
     </ContentLayout>
+    <Modal
+      visible={Boolean(noteReference)}
+      onDismiss={() => { setNoteReference(null); setNoteValue(""); }}
+      closeAriaLabel="Close follow-up note"
+      size="medium"
+      header="Follow-up note"
+      footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => { setNoteReference(null); setNoteValue(""); }}>Cancel</Button><PrimaryActionButton onClick={saveMyWorkNote}>Save note</PrimaryActionButton></SpaceBetween></Box>}
+    >
+      <SpaceBetween size="s">
+        <Box color="text-body-secondary">Saved only for {overview.viewer.login} in this browser. Use GitHub or Notion for shared or durable context.</Box>
+        <Textarea value={noteValue} onChange={({ detail }) => setNoteValue(detail.value.slice(0, 500))} placeholder="What do you need to follow up on?" rows={4} ariaLabel="Follow-up note" />
+        <Box color="text-body-secondary">{noteValue.length} / 500</Box>
+      </SpaceBetween>
+    </Modal>
+    <Modal
+      visible={hiddenMyWorkOpen}
+      onDismiss={() => setHiddenMyWorkOpen(false)}
+      closeAriaLabel="Close hidden work"
+      size="large"
+      header={`Hidden work (${hiddenWorkItems.length})`}
+      footer={<Box float="right"><SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setHiddenMyWorkOpen(false)}>Close</Button>{hiddenWorkItems.length ? <Button onClick={() => restoreAllMyWork(hiddenWorkItems)}>Restore all</Button> : null}</SpaceBetween></Box>}
+    >
+      <SpaceBetween size="m">
+        <Box color="text-body-secondary">These recommendations are hidden only for {overview.viewer.login} in this browser. A pull request returns automatically when its actionable state changes.</Box>
+        <Table
+          variant="embedded"
+          trackBy={myWorkItemKey}
+          items={hiddenWorkItems}
+          columnDefinitions={[
+            { id: "work", header: "Work item", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); setHiddenMyWorkOpen(false); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
+            { id: "state", header: "Status", cell: pullWorkflowStatus },
+            { id: "action", header: "Scope", cell: (item) => <Button variant="inline-link" onClick={() => restoreMyWorkItem(item)}>Restore</Button> },
+          ]}
+          empty={<EmptyState title="No hidden work" detail="Your current recommendations are visible in My work today." />}
+        />
+      </SpaceBetween>
+    </Modal>
     <Modal
       visible={welcomeVisible}
       onDismiss={dismissWelcome}

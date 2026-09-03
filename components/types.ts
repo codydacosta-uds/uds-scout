@@ -296,6 +296,7 @@ export type Overview = {
     udsCli: ToolRelease;
   };
   pullRequests: (PullRequest & { repository: string })[];
+  issues: (Issue & { repository: string })[];
   unassignedPullRequests: (PullRequest & { repository: string })[];
   reviewRequests: (PullRequest & { repository: string })[];
   myWork: {
@@ -310,6 +311,7 @@ export type Overview = {
     availableSince: string;
     items: DailyBriefingItem[];
   };
+  pipelineRuns: (PipelineRun & { repository: string })[];
   workflowFailures: WorkflowFailure[];
   renovate: {
     total: number;

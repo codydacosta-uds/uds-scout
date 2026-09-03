@@ -38,6 +38,7 @@ type OperationalGroup = {
   repository: RawRepo;
   openPulls: (PullRequest & { repository: string })[];
   mergedPulls: RecentMergedPull[];
+  openIssues: Array<import("@/components/types").Issue & { repository: string }>;
   assignedIssues: Array<import("@/components/types").Issue & { repository: string }>;
   runs: RawRun[];
 };
@@ -218,7 +219,7 @@ export async function GET() {
       const [operations, recentRuns, defaultBranchRuns] = await Promise.all([
         loadRepositoryOperations(repository.full_name, viewer.login).catch(async () => {
           const rawPulls = await githubAllPages<RawPull>(`/repos/${repository.full_name}/pulls?state=open&sort=updated&direction=desc`, 10);
-          return { pulls: rawPulls.map(presentPull), mergedPulls: [], assignedIssues: [] };
+          return { pulls: rawPulls.map(presentPull), mergedPulls: [], openIssues: [], assignedIssues: [] };
         }),
         githubRequest<RunsResponse>(`/repos/${repository.full_name}/actions/runs?per_page=30`).catch(() => null),
         githubRequest<RunsResponse>(`/repos/${repository.full_name}/actions/runs?branch=${encodeURIComponent(repository.default_branch)}&per_page=1`).catch(() => null),
@@ -232,6 +233,7 @@ export async function GET() {
         repository,
         openPulls: operations.pulls.map((pull) => ({ ...pull, repository: repository.full_name })),
         mergedPulls: operations.mergedPulls,
+        openIssues: operations.openIssues.map((issue) => ({ ...issue, repository: repository.full_name })),
         assignedIssues: operations.assignedIssues.map((issue) => ({ ...issue, repository: repository.full_name })),
         runs,
       };
@@ -258,6 +260,7 @@ export async function GET() {
     const renovatePullIds = new Set(renovatePulls.map((pull) => pull.id));
     const unassignedRenovatePulls = renovatePulls.filter((pull) => pull.workflow.elevatedAutomation && pull.assignees.length === 0 && !reviewRequestIds.has(pull.id));
     const unassignedPullRequests = allOpenPulls.filter((pull) => !pull.workflow.ignored && pull.assignees.length === 0 && !renovatePullIds.has(pull.id) && !reviewRequestIds.has(pull.id));
+    const openIssues = operationalGroups.flatMap((group) => group.openIssues).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     const assignedIssues = operationalGroups.flatMap((group) => group.assignedIssues).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     const humanWork = relevantPulls(allOpenPulls);
     const myWork = {
@@ -286,6 +289,8 @@ export async function GET() {
       }
     });
     const udsCommonByRepository = new Map(udsCommonRepositories.map((item) => [item.repository, item]));
+
+    const pipelineRuns = operationalGroups.flatMap((group) => group.runs.map((rawRun) => ({ ...presentRun(rawRun, group.repository.default_branch, { failedJob: null, failedStep: null }), repository: group.repository.full_name })));
 
     const workflowFailures: WorkflowFailure[] = (await Promise.all(operationalGroups.flatMap((group) => unresolvedFailures(group.runs, group.repository.default_branch).filter((run) => !routineAutomationRun(group, run)).map(async (rawRun) => {
       const matchingPull = group.openPulls.find((pull) => pull.workflow.headSha === rawRun.head_sha && pull.workflow.checks.failing > 0);
@@ -369,10 +374,12 @@ export async function GET() {
         udsCli: { name: "UDS CLI", repository: "defenseunicorns/uds-cli", version: latestUdsCliRelease?.tag_name ?? null, previousVersion: previousUdsCliRelease?.tag_name ?? null, publishedAt: latestUdsCliRelease?.published_at ?? null, url: latestUdsCliRelease?.html_url ?? "https://github.com/defenseunicorns/uds-cli/releases" },
       },
       pullRequests: allOpenPulls,
+      issues: openIssues,
       unassignedPullRequests,
       reviewRequests,
       myWork,
       briefing: { availableSince: new Date(sevenDaysAgo).toISOString(), items: briefingItems },
+      pipelineRuns,
       workflowFailures,
       renovate: { total: renovatePulls.length, unassignedTotal: unassignedRenovatePulls.length, pulls: renovatePulls },
       repositories: presentedRepositories,

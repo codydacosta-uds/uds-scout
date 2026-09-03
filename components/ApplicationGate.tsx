@@ -92,7 +92,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [error, setError] = useState<string | null>(null);
   const repositoriesLocked = status.repositorySource === "environment";
   const setupStepCount = gitlabTokenReady ? 3 : 2;
-
   useEffect(() => {
     if (step !== "repositories" || repositoriesLoaded) return;
     const controller = new AbortController();

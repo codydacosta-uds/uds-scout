@@ -39,6 +39,7 @@ import {
   UdsCoreVersion,
 } from "./operations-ui";
 import type { SecuritySeverity } from "./security-types";
+import { personalWorkReferenceForIssue, personalWorkReferenceForSecurityFinding, personalWorkReferenceForWorkflow, type PersonalWorkReference } from "@/lib/my-work";
 import type { Overview, PullRequest } from "./types";
 
 function markdownText(value: string) {
@@ -387,11 +388,15 @@ function PullRequestFailureWorkspace({ pull, repository, overview, focusOnOpen }
   );
 }
 
-export function OperationsDrawer({ selection, overview, infrastructure, onSelect, navigate }: {
+export function OperationsDrawer({ selection, overview, infrastructure, onSelect, isPullInMyWork, onAddPullToMyWork, isReferenceInMyWork, onAddReferenceToMyWork, navigate }: {
   selection: DrawerSelection;
   overview: Overview;
   infrastructure: InfrastructureExplorerData | null;
   onSelect: (selection: DrawerSelection) => void;
+  isPullInMyWork: (pull: PullRequest, repository: string) => boolean;
+  onAddPullToMyWork: (pull: PullRequest, repository: string) => void;
+  isReferenceInMyWork: (reference: PersonalWorkReference) => boolean;
+  onAddReferenceToMyWork: (reference: PersonalWorkReference) => void;
   navigate: (href: string) => void;
 }) {
   if (selection.type === "infrastructure-node" && infrastructure) {
@@ -401,11 +406,13 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   if (selection.type === "security-finding") {
     const { finding, vulnerability } = selection;
     const advisoryUrl = vulnerability.references[0] ?? null;
+    const workReference = personalWorkReferenceForSecurityFinding(finding, new Date().toISOString());
+    const inMyWork = isReferenceInMyWork(workReference);
     const contexts = [...new Map(selection.occurrences.map((occurrence) => {
       const context = `${occurrence.affectedPackage} ${occurrence.installedVersion ?? "version unknown"} · ${occurrence.component}`;
       return [context.toLowerCase(), context];
     })).values()];
-    const footer = <SpaceBetween direction="horizontal" size="xs">{advisoryUrl ? <DrawerPrimaryButton href={advisoryUrl} external>Open advisory</DrawerPrimaryButton> : <DrawerPrimaryButton onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</DrawerPrimaryButton>}{advisoryUrl ? <Button onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</Button> : null}</SpaceBetween>;
+    const footer = <SpaceBetween direction="horizontal" size="xs">{advisoryUrl ? <DrawerPrimaryButton href={advisoryUrl} external>Open advisory</DrawerPrimaryButton> : <DrawerPrimaryButton onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</DrawerPrimaryButton>}<Button disabled={inMyWork} onClick={() => onAddReferenceToMyWork(workReference)}>{inMyWork ? "In My work" : "Add to My work"}</Button>{advisoryUrl ? <Button onClick={() => navigate(`/repositories/${selection.repository}?tab=security`)}>Open repository security</Button> : null}</SpaceBetween>;
     return (
       <Drawer header={vulnerability.id} footer={footer}>
         <SpaceBetween size="l">
@@ -451,8 +458,10 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     else readinessParts.push("No checks reported");
     const readinessType = pull.workflow.mergeable === "CONFLICTING" || checkRollup.failing ? "error" : pull.draft || pull.workflow.mergeable === "UNKNOWN" || checkRollup.cancelled || checkRollup.pending ? "warning" : "success";
     const readinessStatus = <StatusIndicator type={readinessType}>{readinessParts.join(" · ")}</StatusIndicator>;
+    const pullRepository = selection.repository ?? pull.repository ?? "";
+    const pullInMyWork = Boolean(pullRepository && isPullInMyWork(pull, pullRepository));
     const summaryItems: { label: React.ReactNode; value: React.ReactNode }[] = [
-      { label: "Repository", value: selection.repository ?? "Unknown" },
+      { label: "Repository", value: pullRepository ? <Button variant="inline-link" onClick={() => navigate(`/repositories/${pullRepository}`)}>{pullRepository}</Button> : "Unknown" },
       { label: "Author", value: <PullAuthor pull={pull} /> },
       { label: "Readiness", value: checkIssueCount ? <Button variant="inline-link" ariaLabel="Open failed pipeline checks" onClick={() => onSelect({ ...selection, focus: "failed-checks", focusRequest: Date.now() })}>{readinessStatus}</Button> : readinessStatus },
     ];
@@ -464,7 +473,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     return (
       <Drawer
         header={`Pull request #${pull.number}`}
-        footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={checkResultsUrl ?? pull.url} external>{pull.workflow.checks.rollup.failing ? "Open failed checks" : pull.workflow.checks.rollup.cancelled ? "Open cancelled checks" : pull.workflow.checks.rollup.pending ? "Open running checks" : "Open in GitHub"}</DrawerPrimaryButton>{checkResultsUrl ? <Button href={pull.url} external>Open pull request</Button> : selection.repository ? <Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button> : null}</SpaceBetween>}
+        footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={checkResultsUrl ?? pull.url} external>{pull.workflow.checks.rollup.failing ? "Open failed checks" : pull.workflow.checks.rollup.cancelled ? "Open cancelled checks" : pull.workflow.checks.rollup.pending ? "Open running checks" : "Open in GitHub"}</DrawerPrimaryButton>{pullRepository ? <Button disabled={pullInMyWork} onClick={() => onAddPullToMyWork(pull, pullRepository)}>{pullInMyWork ? "In My work" : "Add to My work"}</Button> : null}{checkResultsUrl ? <Button href={pull.url} external>Open pull request</Button> : null}</SpaceBetween>}
       >
         <SpaceBetween size="l">
           <Box variant="h3">{pull.title}</Box>
@@ -497,8 +506,10 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 
   if (selection.type === "workflow-failure") {
     const { failure } = selection;
+    const workReference = personalWorkReferenceForWorkflow(failure, new Date().toISOString());
+    const inMyWork = isReferenceInMyWork(workReference);
     return (
-      <Drawer header={`Failed workflow #${failure.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={failure.url} external>Open workflow run</DrawerPrimaryButton><Button onClick={() => navigate(`/repositories/${failure.repository}`)}>Open repository page</Button></SpaceBetween>}>
+      <Drawer header={`Failed workflow #${failure.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={failure.url} external>Open workflow run</DrawerPrimaryButton><Button disabled={inMyWork} onClick={() => onAddReferenceToMyWork(workReference)}>{inMyWork ? "In My work" : "Add to My work"}</Button><Button onClick={() => navigate(`/repositories/${failure.repository}`)}>Open repository page</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box variant="h3">{failure.title}</Box>
           <StatusIndicator type="error">{failure.attentionReason}</StatusIndicator>
@@ -526,8 +537,10 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 
   if (selection.type === "pipeline-run") {
     const { run } = selection;
+    const workReference = personalWorkReferenceForWorkflow({ ...run, repository: selection.repository }, new Date().toISOString());
+    const inMyWork = isReferenceInMyWork(workReference);
     return (
-      <Drawer header={`Pipeline run #${run.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={run.url} external>Open in GitHub</DrawerPrimaryButton><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
+      <Drawer header={`Pipeline run #${run.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={run.url} external>Open in GitHub</DrawerPrimaryButton><Button disabled={inMyWork} onClick={() => onAddReferenceToMyWork(workReference)}>{inMyWork ? "In My work" : "Add to My work"}</Button><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box variant="h3">{run.title}</Box>
           {runStatus(run)}
@@ -547,8 +560,10 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
 
   if (selection.type === "issue") {
     const { issue } = selection;
+    const workReference = personalWorkReferenceForIssue({ ...issue, repository: selection.repository }, new Date().toISOString());
+    const inMyWork = isReferenceInMyWork(workReference);
     return (
-      <Drawer header={`Issue #${issue.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={issue.url} external>Open in GitHub</DrawerPrimaryButton><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
+      <Drawer header={`Issue #${issue.number}`} footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={issue.url} external>Open in GitHub</DrawerPrimaryButton><Button disabled={inMyWork} onClick={() => onAddReferenceToMyWork(workReference)}>{inMyWork ? "In My work" : "Add to My work"}</Button><Button onClick={() => navigate(`/repositories/${selection.repository}`)}>Open repository page</Button></SpaceBetween>}>
         <SpaceBetween size="l">
           <Box variant="h3">{issue.title}</Box>
           <StatusIndicator type="warning">Open</StatusIndicator>

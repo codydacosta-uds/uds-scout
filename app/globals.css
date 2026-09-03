@@ -486,6 +486,28 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   width: min(320px, 100%);
 }
 
+.my-work-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.my-work-filters {
+  display: grid;
+  grid-template-columns: repeat(2, 240px);
+  gap: 8px;
+}
+
+.my-work-sort {
+  width: 100%;
+}
+
+.my-work-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .renovate-review-beacon {
   width: 42px;
   height: 42px;
@@ -1539,6 +1561,23 @@ div[class*="awsui_drawers-mobile-triggers-container_"] {
   .table-filters,
   .infrastructure-filters {
     grid-template-columns: 1fr;
+  }
+
+  .my-work-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .my-work-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .my-work-sort {
+    width: 100%;
+  }
+
+  .my-work-toolbar-actions {
+    justify-content: flex-start;
   }
 
   .deployment-root-sequence,

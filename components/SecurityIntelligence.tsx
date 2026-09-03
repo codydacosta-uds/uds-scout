@@ -16,6 +16,8 @@ import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import { useMemo, useState } from "react";
+import { isReferenceInPersonalWork, personalWorkReferenceForSecurityFinding, type PersonalWorkReference, type PersonalWorkState } from "@/lib/my-work";
+import { PrimaryActionButton } from "./action-ui";
 import { InfoPopover } from "./info-ui";
 import type { DrawerSelection } from "./operations-types";
 import { EmptyState, relativeTime } from "./operations-ui";
@@ -129,15 +131,18 @@ const FINDING_FILTERS = [
   { label: "Fix available", value: "fix" },
 ];
 
-export function RepositorySecurityPanel({ security, repository, overview, openDrawer }: {
+export function RepositorySecurityPanel({ security, repository, overview, personalWorkState, onAddToMyWork, openDrawer }: {
   security: RepositorySecurity | null;
   repository: Repository;
   overview: Overview;
+  personalWorkState: PersonalWorkState;
+  onAddToMyWork: (references: PersonalWorkReference[]) => void;
   openDrawer: (selection: DrawerSelection) => void;
 }) {
   const [filter, setFilter] = useState("priority");
   const [findingsPage, setFindingsPage] = useState(1);
   const [inventoryPage, setInventoryPage] = useState(1);
+  const [selectedFindingGroups, setSelectedFindingGroups] = useState<{ id: string; finding: SecurityFinding; occurrences: SecurityFinding[] }[]>([]);
   const pulls = overview.pullRequests.filter((pull) => pull.repository === repository.fullName);
   const filteredOccurrences = useMemo(() => (security?.findings ?? []).filter((finding) => {
     if (filter === "priority") return finding.category === "application" || ((finding.severity === "critical" || finding.severity === "high") && Boolean(relatedUpdate(finding, security?.vulnerabilities[finding.vulnerabilityId], pulls)));
@@ -164,6 +169,8 @@ export function RepositorySecurityPanel({ security, repository, overview, openDr
   const findingsPageCount = Math.max(1, Math.ceil(findingGroups.length / 25));
   const currentFindingsPage = Math.min(findingsPage, findingsPageCount);
   const visibleFindingGroups = findingGroups.slice((currentFindingsPage - 1) * 25, currentFindingsPage * 25);
+  const selectedGroupIds = new Set(selectedFindingGroups.map((group) => group.id));
+  const selectedCurrentFindingGroups = visibleFindingGroups.filter((group) => selectedGroupIds.has(group.id) && !isReferenceInPersonalWork(personalWorkReferenceForSecurityFinding(group.finding, new Date().toISOString()), personalWorkState));
   const inventoryPageCount = Math.max(1, Math.ceil((security?.artifacts.length ?? 0) / 10));
   const currentInventoryPage = Math.min(inventoryPage, inventoryPageCount);
   const visibleArtifacts = (security?.artifacts ?? []).slice((currentInventoryPage - 1) * 10, currentInventoryPage * 10);
@@ -229,10 +236,10 @@ export function RepositorySecurityPanel({ security, repository, overview, openDr
         </SpaceBetween>
       </ExpandableSection>
       <Table
-        variant="container" trackBy="id" items={visibleFindingGroups}
+        variant="container" trackBy="id" selectionType="multi" selectedItems={selectedCurrentFindingGroups} onSelectionChange={({ detail }) => setSelectedFindingGroups([...detail.selectedItems])} isItemDisabled={(group) => isReferenceInPersonalWork(personalWorkReferenceForSecurityFinding(group.finding, new Date().toISOString()), personalWorkState)} ariaLabels={{ selectionGroupLabel: "Select security findings to add to My work today", itemSelectionLabel: ({ selectedItems }, group) => isReferenceInPersonalWork(personalWorkReferenceForSecurityFinding(group.finding, new Date().toISOString()), personalWorkState) ? `${group.finding.vulnerabilityId} is already in My work today` : `${selectedItems.includes(group) ? "Deselect" : "Select"} ${group.finding.vulnerabilityId}` }} items={visibleFindingGroups}
         pagination={findingsPageCount > 1 ? <Pagination currentPageIndex={currentFindingsPage} pagesCount={findingsPageCount} onChange={({ detail }) => setFindingsPage(detail.currentPageIndex)} /> : undefined}
         filter={<Select selectedOption={FINDING_FILTERS.find((option) => option.value === filter) ?? FINDING_FILTERS[0]} options={FINDING_FILTERS} onChange={({ detail }) => { setFilter(detail.selectedOption.value ?? "priority"); setFindingsPage(1); }} />}
-        header={<Header variant="h2" counter={`(${findingGroups.length})`} description="Unique upstream application advisories and high-impact dependency CVEs." info={<InfoPopover header="Decision-relevant findings">Scout collapses repeated image and package occurrences into one CVE decision. The default includes direct application advisories and Critical or High dependency CVEs only when Scout finds a matching update pull request. Complete container evidence remains available through the filters.</InfoPopover>}>Findings requiring review</Header>}
+        header={<Header variant="h2" counter={`(${findingGroups.length})`} description="Unique upstream application advisories and high-impact dependency CVEs." info={<InfoPopover header="Decision-relevant findings">Scout collapses repeated image and package occurrences into one CVE decision. The default includes direct application advisories and Critical or High dependency CVEs only when Scout finds a matching update pull request. Complete container evidence remains available through the filters.</InfoPopover>} actions={selectedCurrentFindingGroups.length ? <PrimaryActionButton onClick={() => { const now = new Date().toISOString(); onAddToMyWork(selectedCurrentFindingGroups.map((group) => personalWorkReferenceForSecurityFinding(group.finding, now))); setSelectedFindingGroups([]); }}>{`Add to My work (${selectedCurrentFindingGroups.length})`}</PrimaryActionButton> : undefined}>Findings requiring review</Header>}
         columnDefinitions={[
           { id: "finding", header: "Finding", cell: (item) => { const finding = item.finding; const vulnerability = security.vulnerabilities[finding.vulnerabilityId]; return <SpaceBetween size="xxs"><SpaceBetween direction="horizontal" size="xs"><Button variant="inline-link" onClick={() => openDrawer(findingDrawerSelection(finding, security, pulls))}>{vulnerability?.id ?? finding.vulnerabilityId}</Button>{severityBadge(finding.severity)}</SpaceBetween><Box color="text-body-secondary">{vulnerability?.summary ?? finding.vulnerabilityId}</Box><Box color="text-body-secondary">{finding.sources.join(", ")}</Box></SpaceBetween>; } },
           { id: "affected", header: "Affected scope", cell: (item) => { const finding = item.finding; if (finding.category === "application") { const versions = [...new Set(item.occurrences.map((occurrence) => `${occurrence.affectedPackage} ${occurrence.installedVersion ?? "version unknown"}`))]; return <SpaceBetween size="xxs"><Box>{versions.slice(0, 2).join(", ")}</Box>{versions.length > 2 ? <Box color="text-body-secondary">+{versions.length - 2} more affected versions</Box> : null}</SpaceBetween>; } const packages = [...new Set(item.occurrences.map((occurrence) => `${occurrence.affectedPackage} ${occurrence.installedVersion ?? "version unknown"}`))]; const images = new Set(item.occurrences.map((occurrence) => occurrence.artifactId).filter(Boolean)); return <SpaceBetween size="xxs"><Box>{packages.slice(0, 2).join(", ")}</Box><Box color="text-body-secondary">{images.size} affected image{images.size === 1 ? "" : "s"}{packages.length > 2 ? ` · +${packages.length - 2} more packages` : ""}</Box></SpaceBetween>; } },

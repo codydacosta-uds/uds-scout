@@ -15,6 +15,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - Added `task update` for safely fast-forwarding a clean `main` checkout, rebuilding the Docker image, and replacing the running Scout container while preserving saved workspace settings.
 - Added pipeline-state filtering to the full Renovate updates page for failed or cancelled, running, passed, and no-check updates.
 - Added a browser-local daily control to show or hide the overview Renovate review without changing its configured weekly schedule.
+- Added a versioned browser-local personal-work queue that combines Scout recommendations with pull requests, issues, workflows, and security findings added from source tables or detail drawers, including source/type filters, sorting, bulk add/remove, private follow-up notes, undo, cross-tab synchronization, hidden-recommendation review, deduplication, and confirmed lifecycle cleanup.
 - Added major-version detection from Renovate pull-request metadata and version changes, with a dedicated overview count, red table labels, filtering, and version details in the pull-request drawer.
 - Added a controlled failed-check drawer with exact GitHub run links, failed job and step details, confirmed job or workflow re-run actions, and a browser-local, checkable next-step queue scoped to the GitHub user, workflow run, and selected failure.
 - Added a one-time notice explaining that workflow notes are an unshared browser scratchpad and directing durable context to Notion or GitHub.
@@ -47,6 +48,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Fixed
 
+- The overview UDS Common attention banner can now be dismissed and stays hidden until the underlying repository attention state changes.
 - The production container now removes npm, Corepack, and Yarn after the standalone application is copied, reducing unused tooling and eliminating vulnerabilities inherited only from base-image package managers.
 - Terraform Explorer now hides values for sensitive outputs as well as sensitive variable defaults.
 - OCI inspection now rejects additional private, loopback, link-local, carrier-grade NAT, multicast, and private IPv6 registry addresses and uses a restricted DNS dispatcher so registry and redirect connections cannot resolve to private addresses.

@@ -28,10 +28,11 @@ import Tabs from "@cloudscape-design/components/tabs";
 import TextFilter from "@cloudscape-design/components/text-filter";
 import TopNavigation from "@cloudscape-design/components/top-navigation";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { addReferencesToPersonalWork, EMPTY_PERSONAL_WORK_STATE, isPullInPersonalWork, isReferenceInPersonalWork, personalWorkReferenceForIssue, personalWorkReferenceForWorkflow, personalWorkStorageName, readPersonalWorkState, writePersonalWorkState, type MyWorkIssue, type MyWorkPipeline, type MyWorkPull, type PersonalWorkReference, type PersonalWorkState } from "@/lib/my-work";
 import { isSecurityIntelligenceRepository, SONIC_REPOSITORY, UDS_SCOUT_REPOSITORY_URL } from "@/lib/repository-constants";
 import { GitLabTicketComposer } from "./GitLabTicketComposer";
-import { PrimaryActionButton } from "./action-ui";
+import { ActionSuccessToast, PrimaryActionButton, type ActionConfirmation } from "./action-ui";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
 import { OperationsDrawer } from "./OperationsDrawer";
 import { OverviewPage } from "./OverviewPage";
@@ -126,7 +127,11 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const [helpOpen, setHelpOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerSelection | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [personalWorkState, setPersonalWorkState] = useState<PersonalWorkState>(EMPTY_PERSONAL_WORK_STATE);
+  const [personalWorkUndo, setPersonalWorkUndo] = useState<PersonalWorkState | null>(null);
+  const [personalWorkConfirmation, setPersonalWorkConfirmation] = useState<ActionConfirmation | null>(null);
   const sonicAvailable = overview?.capabilities.sonic;
+  const viewerLogin = overview?.viewer.login ?? null;
   const openDrawer = (selection: DrawerSelection) => {
     setDrawer(selection);
     setDetailsOpen(true);
@@ -140,6 +145,51 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       setInitialLoadWarningVisible(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!viewerLogin) return;
+    setPersonalWorkState(readPersonalWorkState(viewerLogin));
+    const synchronizePersonalWork = (event: StorageEvent) => {
+      if (event.key === personalWorkStorageName(viewerLogin)) setPersonalWorkState(readPersonalWorkState(viewerLogin));
+    };
+    window.addEventListener("storage", synchronizePersonalWork);
+    return () => window.removeEventListener("storage", synchronizePersonalWork);
+  }, [viewerLogin]);
+
+  const persistPersonalWorkState = useCallback((next: PersonalWorkState, confirmation?: string) => {
+    if (!viewerLogin) return;
+    if (confirmation) setPersonalWorkUndo(personalWorkState);
+    setPersonalWorkState(next);
+    try {
+      writePersonalWorkState(viewerLogin, next);
+    } catch {
+      // Keep the personal queue available for this view when browser storage is unavailable.
+    }
+    if (confirmation) setPersonalWorkConfirmation({ header: confirmation });
+  }, [personalWorkState, viewerLogin]);
+
+  const addReferencesToMyWork = useCallback((references: PersonalWorkReference[]) => {
+    if (!references.length) return;
+    const next = addReferencesToPersonalWork(personalWorkState, references);
+    persistPersonalWorkState(next, `${references.length} ${references.length === 1 ? "item was" : "items were"} added to My work today.`);
+  }, [persistPersonalWorkState, personalWorkState]);
+
+  const addPullsToMyWork = useCallback((pulls: MyWorkPull[]) => {
+    const now = new Date().toISOString();
+    addReferencesToMyWork(pulls.map((pull) => ({ version: 1, source: "github", kind: "pull-request", repository: pull.repository, id: String(pull.id), addedAt: now })));
+  }, [addReferencesToMyWork]);
+
+  const undoPersonalWorkChange = () => {
+    if (!viewerLogin || !personalWorkUndo) return;
+    setPersonalWorkState(personalWorkUndo);
+    try {
+      writePersonalWorkState(viewerLogin, personalWorkUndo);
+    } catch {
+      // Keep the restored queue for this view when browser storage is unavailable.
+    }
+    setPersonalWorkUndo(null);
+    setPersonalWorkConfirmation({ header: "My work today was restored." });
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -346,16 +396,16 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
 
   useEffect(() => {
     let lastAutomaticRefresh = Date.now();
-    const refreshIfVisibleAndDue = () => {
-      if (document.visibilityState !== "visible" || Date.now() - lastAutomaticRefresh < 60_000) return;
+    const refreshIfDue = () => {
+      if (Date.now() - lastAutomaticRefresh < 60_000) return;
       lastAutomaticRefresh = Date.now();
       setRefreshKey((value) => value + 1);
     };
-    const timer = window.setInterval(refreshIfVisibleAndDue, 60_000);
-    document.addEventListener("visibilitychange", refreshIfVisibleAndDue);
+    const timer = window.setInterval(refreshIfDue, 60_000);
+    document.addEventListener("visibilitychange", refreshIfDue);
     return () => {
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshIfVisibleAndDue);
+      document.removeEventListener("visibilitychange", refreshIfDue);
     };
   }, []);
 
@@ -445,9 +495,9 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   } else if (!overview) {
     content = <EmptyState title="Operational data is unavailable" detail="Confirm the GitHub token is available and try again." />;
   } else if (view === "overview") {
-    content = <OverviewPage overview={overview} securityWorkspace={securityWorkspace} refreshing={loading} refreshError={error} gitLabWorkItems={gitLabWorkItems} gitLabLoading={gitLabLoading} gitLabError={gitLabError} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <OverviewPage overview={overview} securityWorkspace={securityWorkspace} personalWorkState={personalWorkState} onPersonalWorkStateChange={persistPersonalWorkState} refreshing={loading} refreshError={error} gitLabWorkItems={gitLabWorkItems} gitLabLoading={gitLabLoading} gitLabError={gitLabError} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   } else if (view === "pull-requests") {
-    content = <PullRequestsPage overview={overview} openDrawer={openDrawer} />;
+    content = <PullRequestsPage overview={overview} personalWorkState={personalWorkState} onAddToMyWork={addPullsToMyWork} openDrawer={openDrawer} />;
   } else if (view === "renovate") {
     content = <RenovatePage overview={overview} openDrawer={openDrawer} />;
   } else if (view === "security") {
@@ -471,7 +521,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     const workspaceMatchesRepository = Boolean(workspace && workspace.repository.fullName.toLowerCase() === repositoryName?.toLowerCase());
     const matchingWorkspaceError = workspaceError && workspaceError.repository.toLowerCase() === repositoryName?.toLowerCase() ? workspaceError.message : null;
     const repositorySecurity = securityWorkspace?.repositories.find((item) => item.repositoryId.toLowerCase() === repositoryName?.toLowerCase()) ?? null;
-    content = <RepositoryPage overview={overview} repositoryName={repositoryName} repository={repositoryOverview} workspace={workspaceMatchesRepository ? workspace : null} security={repositorySecurity} loading={workspaceLoading || (!workspaceMatchesRepository && !matchingWorkspaceError)} error={matchingWorkspaceError} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <RepositoryPage overview={overview} personalWorkState={personalWorkState} onAddPullsToMyWork={addPullsToMyWork} onAddReferencesToMyWork={addReferencesToMyWork} repositoryName={repositoryName} repository={repositoryOverview} workspace={workspaceMatchesRepository ? workspace : null} security={repositorySecurity} loading={workspaceLoading || (!workspaceMatchesRepository && !matchingWorkspaceError)} error={matchingWorkspaceError} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   }
 
   return (
@@ -504,7 +554,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
           {
             id: "details",
             content: drawer && overview
-              ? <OperationsDrawer selection={drawer} overview={overview} infrastructure={infrastructure} onSelect={openDrawer} navigate={(href) => { setDetailsOpen(false); router.push(href); }} />
+              ? <OperationsDrawer selection={drawer} overview={overview} infrastructure={infrastructure} onSelect={openDrawer} isPullInMyWork={(pull, repository) => isPullInPersonalWork({ ...pull, repository }, personalWorkState)} onAddPullToMyWork={(pull, repository) => addPullsToMyWork([{ ...pull, repository }])} isReferenceInMyWork={(reference) => isReferenceInPersonalWork(reference, personalWorkState)} onAddReferenceToMyWork={(reference) => addReferencesToMyWork([reference])} navigate={(href) => { setDetailsOpen(false); router.push(href); }} />
               : <Drawer header="Details"><Box color="text-body-secondary">Choose an item to inspect.</Box></Drawer>,
             trigger: { iconName: "view-vertical" },
             ariaLabels: { drawerName: "Details", closeButton: "Close details", triggerButton: "Open details" },
@@ -537,6 +587,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         }}
         content={content}
       />
+      {personalWorkConfirmation ? <ActionSuccessToast confirmation={{ ...personalWorkConfirmation, content: personalWorkUndo ? <Button variant="inline-link" onClick={undoPersonalWorkChange}>Undo</Button> : personalWorkConfirmation.content }} onDismiss={() => { setPersonalWorkConfirmation(null); setPersonalWorkUndo(null); }} /> : null}
       {!detailsOpen && !helpOpen ? (
         <a
           className="slack-taco"
@@ -557,12 +608,12 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   overview: {
     title: "Operational overview",
     summary: "A personalized workflow view across only the repositories selected for the connected GitHub user.",
-    actions: ["Start with My work today for items waiting on you, blocked, or approved but still open.", "Use Since yesterday for a grouped briefing rather than an activity feed.", "Open drawers to verify approvals, required checks, mergeability, and workflow failure context.", "Use Customize cards to change the overview order for this GitHub user in this browser.", "Review your assigned Gitlab work items at the bottom of the page when that integration is available."],
+    actions: ["Start with My work today for Scout recommendations and pull requests you added for personal follow-up.", "Use Since yesterday for a grouped briefing rather than an activity feed.", "Open drawers to verify approvals, required checks, mergeability, and workflow failure context.", "Use Customize cards to change the overview order for this GitHub user in this browser.", "Review your assigned Gitlab work items at the bottom of the page when that integration is available."],
   },
   "pull-requests": {
     title: "Open pull requests",
     summary: "A selected-repository workflow queue showing authors, ownership, approvals, checks, blockers, and who each pull request is waiting on.",
-    actions: ["Filter the queue by title, repository, author, or assignee.", "Open a pull request drawer before continuing to GitHub."],
+    actions: ["Filter the queue by title, repository, author, or assignee.", "Select one or more pull requests to add them to My work today.", "Open a pull request drawer before continuing to GitHub."],
   },
   security: {
     title: "Security intelligence",
@@ -891,8 +942,14 @@ function UdsPackagesCatalogPage({ overview, catalog, contributorCounts, loading,
   );
 }
 
-function PullRequestsPage({ overview, openDrawer }: { overview: Overview; openDrawer: (selection: DrawerSelection) => void }) {
+function PullRequestsPage({ overview, personalWorkState, onAddToMyWork, openDrawer }: {
+  overview: Overview;
+  personalWorkState: PersonalWorkState;
+  onAddToMyWork: (pulls: MyWorkPull[]) => void;
+  openDrawer: (selection: DrawerSelection) => void;
+}) {
   const preferencePrefix = sessionPreferenceKey(overview.viewer.login, "pull-requests");
+  const [selectedPulls, setSelectedPulls] = useState<MyWorkPull[]>([]);
   const [filter, setFilter] = useSessionPreference(`${preferencePrefix}:filter`, "", isString);
   const [repositoryFilter, setRepositoryFilter] = useSessionPreference(`${preferencePrefix}:repository`, "all", isString);
   const [authorFilter, setAuthorFilter] = useSessionPreference(`${preferencePrefix}:author`, "all", isString);
@@ -914,18 +971,29 @@ function PullRequestsPage({ overview, openDrawer }: { overview: Overview; openDr
       && (activeAuthor === "all" || pull.author === activeAuthor)
       && (!query || pull.title.toLowerCase().includes(query) || pull.repository.toLowerCase().includes(query) || pull.author.toLowerCase().includes(query) || pull.assignees.some((assignee) => assignee.login.toLowerCase().includes(query)));
   });
+  const selectedKeys = new Set(selectedPulls.map((pull) => `${pull.repository.toLowerCase()}:${pull.id}`));
+  const selectedCurrentPulls = items.filter((pull) => selectedKeys.has(`${pull.repository.toLowerCase()}:${pull.id}`) && !isPullInPersonalWork(pull, personalWorkState));
+  const addSelectedPulls = () => {
+    onAddToMyWork(selectedCurrentPulls);
+    setSelectedPulls([]);
+  };
   return (
     <ContentLayout header={<Header variant="h1" description="Open changes awaiting review across tracked repositories." counter={`(${overview.pullRequests.length})`}>Open pull requests</Header>}>
       <Table
         variant="container"
         stickyHeader
         stripedRows
-        trackBy="id"
+        trackBy={(pull) => `${pull.repository.toLowerCase()}:${pull.id}`}
+        selectionType="multi"
+        selectedItems={selectedCurrentPulls}
+        onSelectionChange={({ detail }) => setSelectedPulls([...detail.selectedItems])}
+        isItemDisabled={(pull) => isPullInPersonalWork(pull, personalWorkState)}
+        ariaLabels={{ selectionGroupLabel: "Select pull requests to add to My work today", itemSelectionLabel: ({ selectedItems }, pull) => isPullInPersonalWork(pull, personalWorkState) ? `${pull.title} is already in My work today` : `${selectedItems.includes(pull) ? "Deselect" : "Select"} ${pull.title}` }}
         items={items}
         filter={<div className="table-filters pull-request-table-filters"><TextFilter filteringText={filter} onChange={({ detail }) => setFilter(detail.filteringText)} filteringPlaceholder="Find pull requests" countText={`${items.length} matches`} /><Select selectedOption={selectedRepository} onChange={({ detail }) => setRepositoryFilter(detail.selectedOption.value ?? "all")} options={repositoryOptions} /><Select selectedOption={selectedAuthor} onChange={({ detail }) => setAuthorFilter(detail.selectedOption.value ?? "all")} options={authorOptions} /></div>}
-        header={<Header variant="h2" counter={`(${items.length})`} description="Review ownership, pipeline health, status, and recent activity.">Pull requests</Header>}
+        header={<Header variant="h2" counter={`(${items.length})`} description="Review ownership, pipeline health, status, and recent activity." actions={selectedCurrentPulls.length ? <PrimaryActionButton onClick={addSelectedPulls}>{`Add to My work (${selectedCurrentPulls.length})`}</PrimaryActionButton> : undefined}>Pull requests</Header>}
         columnDefinitions={[
-          { id: "title", header: "Pull request", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number}</Box></SpaceBetween> },
+          { id: "title", header: "Pull request", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number}{isPullInPersonalWork(item, personalWorkState) ? " · in My work" : ""}</Box></SpaceBetween> },
           { id: "repository", header: "Repository", cell: (item) => <Link href={`/repositories/${item.repository}`} onFollow={(event) => { const repository = overview.repositories.find((candidate) => candidate.fullName === item.repository); if (repository) { event.preventDefault(); openDrawer({ type: "repository", repository }); } }}>{item.repository}</Link> },
           { id: "author", header: "Author", cell: (item) => <PullAuthor pull={item} /> },
           { id: "assignment", header: "Assignment / review", cell: (item) => <SpaceBetween size="xxs"><PullPeople people={item.assignees} />{item.requestedReviewers.some((reviewer) => reviewer.login.toLowerCase() === overview.viewer.login.toLowerCase()) ? <StatusIndicator type="info">Your review requested</StatusIndicator> : null}</SpaceBetween> },
@@ -980,19 +1048,30 @@ function RenovatePage({ overview, openDrawer }: { overview: Overview; openDrawer
   );
 }
 
-function RepositoryPullRequestTable({ items, title, repository, referenceTime, openDrawer }: {
+function RepositoryPullRequestTable({ items, title, repository, referenceTime, personalWorkState, onAddToMyWork, openDrawer }: {
   items: PullRequest[];
   title: string;
   repository: string;
   referenceTime: string;
+  personalWorkState: PersonalWorkState;
+  onAddToMyWork: (pulls: MyWorkPull[]) => void;
   openDrawer: (selection: DrawerSelection) => void;
 }) {
+  const [selectedPulls, setSelectedPulls] = useState<PullRequest[]>([]);
+  const availablePulls = items.map((pull) => ({ ...pull, repository }));
+  const selectedKeys = new Set(selectedPulls.map((pull) => pull.id));
+  const selectedCurrentPulls = availablePulls.filter((pull) => selectedKeys.has(pull.id) && !isPullInPersonalWork(pull, personalWorkState));
   return (
     <Table
       variant="container"
       trackBy="id"
-      items={items}
-      header={<Header variant="h2" counter={`(${items.length})`} description="Open a pull request title for workflow details.">{title}</Header>}
+      selectionType="multi"
+      selectedItems={selectedCurrentPulls}
+      onSelectionChange={({ detail }) => setSelectedPulls([...detail.selectedItems])}
+      isItemDisabled={(pull) => isPullInPersonalWork({ ...pull, repository }, personalWorkState)}
+      ariaLabels={{ selectionGroupLabel: `Select ${title.toLowerCase()} to add to My work today`, itemSelectionLabel: ({ selectedItems }, pull) => isPullInPersonalWork({ ...pull, repository }, personalWorkState) ? `${pull.title} is already in My work today` : `${selectedItems.includes(pull) ? "Deselect" : "Select"} ${pull.title}` }}
+      items={availablePulls}
+      header={<Header variant="h2" counter={`(${items.length})`} description="Open a pull request title for workflow details." actions={selectedCurrentPulls.length ? <PrimaryActionButton onClick={() => { onAddToMyWork(selectedCurrentPulls); setSelectedPulls([]); }}>{`Add to My work (${selectedCurrentPulls.length})`}</PrimaryActionButton> : undefined}>{title}</Header>}
       columnDefinitions={[
         { id: "title", header: "Pull request", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number}</Box></SpaceBetween> },
         { id: "author", header: "Author", cell: (item) => <PullAuthor pull={item} /> },
@@ -1008,8 +1087,11 @@ function RepositoryPullRequestTable({ items, title, repository, referenceTime, o
   );
 }
 
-function RepositoryPage({ overview, repositoryName, repository, workspace, security, loading, error, openDrawer, navigate }: {
+function RepositoryPage({ overview, personalWorkState, onAddPullsToMyWork, onAddReferencesToMyWork, repositoryName, repository, workspace, security, loading, error, openDrawer, navigate }: {
   overview: Overview;
+  personalWorkState: PersonalWorkState;
+  onAddPullsToMyWork: (pulls: MyWorkPull[]) => void;
+  onAddReferencesToMyWork: (references: PersonalWorkReference[]) => void;
   repositoryName?: string;
   repository?: Repository;
   workspace: RepositoryWorkspace | null;
@@ -1022,6 +1104,8 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, secur
   const securityEligible = isSecurityIntelligenceRepository(repositoryName ?? "");
   const requestedTab = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
   const [activeTab, setActiveTab] = useState(requestedTab === "security" && securityEligible ? "security" : "overview");
+  const [selectedIssues, setSelectedIssues] = useState<MyWorkIssue[]>([]);
+  const [selectedRuns, setSelectedRuns] = useState<MyWorkPipeline[]>([]);
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
     setActiveTab(tab === "security" && securityEligible ? "security" : "overview");
@@ -1043,6 +1127,10 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, secur
   const runs = workspace.actions?.runs ?? [];
   const referenceTime = workspace.generatedAt;
   const failedPipelineUrl = pipelineFailed(repository.pipeline?.conclusion) ? repository.pipeline?.url : undefined;
+  const issueReferences = new Map(personalWorkState.references.filter((reference) => reference.kind === "issue").map((reference) => [`${reference.repository.toLowerCase()}:${reference.id}`, reference]));
+  const runReferences = new Map(personalWorkState.references.filter((reference) => reference.kind === "workflow").map((reference) => [`${reference.repository.toLowerCase()}:${reference.id}`, reference]));
+  const selectedCurrentIssues = selectedIssues.filter((issue) => !issueReferences.has(`${issue.repository.toLowerCase()}:${issue.id}`));
+  const selectedCurrentRuns = selectedRuns.filter((run) => !runReferences.has(`${run.repository.toLowerCase()}:${run.id}`));
   const securityHasCoverage = Boolean(security && (security.applications.some((application) => application.coverage !== "unknown") || security.artifacts.some((artifact) => artifact.securityCoverage.container !== "unavailable")));
   const securityCoverageIncomplete = Boolean(security && (!security.applications.every((application) => application.coverage === "full") || !security.artifacts.every((artifact) => artifact.securityCoverage.container === "full")));
   const directApplicationFindings = security?.findings.filter((finding) => finding.category === "application") ?? [];
@@ -1101,19 +1189,19 @@ function RepositoryPage({ overview, repositoryName, repository, workspace, secur
               id: "overview",
               content: <SpaceBetween size="l"><Container header={<Header variant="h2">Repository status</Header>}><KeyValuePairs columns={3} items={[{ label: "Operational status", value: repositoryHealth(repository) }, { label: "Default branch", value: repository.defaultBranch }, { label: "Visibility", value: repository.visibility }, { label: "Primary language", value: repository.language ?? "Not detected" }, { label: "Last repository update", value: relativeTime(repository.updatedAt, overview.generatedAt) }, { label: "UDS Common", value: udsCommonStatusAction(repository.udsCommon, () => openDrawer({ type: "uds-common", repository: repository.fullName })) }, { label: "UDS Core version", value: repository.fullName === overview.udsCore.repository ? <UdsCoreVersion udsCore={overview.udsCore} /> : "Managed outside this repository" }]} /></Container>{relatedResources}</SpaceBetween>,
             },
-            { label: "Pull requests", id: "pull-requests", content: <RepositoryPullRequestTable items={workspace.pulls.open} title="Open pull requests" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} /> },
-            { label: "Renovate updates", id: "renovate", content: <RepositoryPullRequestTable items={renovatePulls} title="Renovate updates" repository={repository.fullName} referenceTime={referenceTime} openDrawer={openDrawer} /> },
+            { label: "Pull requests", id: "pull-requests", content: <RepositoryPullRequestTable items={workspace.pulls.open} title="Open pull requests" repository={repository.fullName} referenceTime={referenceTime} personalWorkState={personalWorkState} onAddToMyWork={onAddPullsToMyWork} openDrawer={openDrawer} /> },
+            { label: "Renovate updates", id: "renovate", content: <RepositoryPullRequestTable items={renovatePulls} title="Renovate updates" repository={repository.fullName} referenceTime={referenceTime} personalWorkState={personalWorkState} onAddToMyWork={onAddPullsToMyWork} openDrawer={openDrawer} /> },
             {
               label: "Issues",
               id: "issues",
-              content: <Table variant="container" trackBy="id" items={issues} header={<Header variant="h2" counter={`(${issues.length})`}>Open issues</Header>} columnDefinitions={[{ id: "title", header: "Issue", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "issue", issue: item, repository: repository.fullName }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number} by {item.author}</Box></SpaceBetween> }, { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, referenceTime) }]} empty={<EmptyState title="No open issues" detail="This repository has no issues requiring triage." />} />,
+              content: <Table variant="container" trackBy="id" selectionType="multi" selectedItems={selectedCurrentIssues} onSelectionChange={({ detail }) => setSelectedIssues(detail.selectedItems.map((issue) => ({ ...issue, repository: repository.fullName })))} isItemDisabled={(issue) => issueReferences.has(`${repository.fullName.toLowerCase()}:${issue.id}`)} ariaLabels={{ selectionGroupLabel: "Select issues to add to My work today", itemSelectionLabel: ({ selectedItems }, issue) => issueReferences.has(`${repository.fullName.toLowerCase()}:${issue.id}`) ? `${issue.title} is already in My work today` : `${selectedItems.includes(issue) ? "Deselect" : "Select"} ${issue.title}` }} items={issues.map((issue) => ({ ...issue, repository: repository.fullName }))} header={<Header variant="h2" counter={`(${issues.length})`} actions={selectedCurrentIssues.length ? <PrimaryActionButton onClick={() => { const now = new Date().toISOString(); onAddReferencesToMyWork(selectedCurrentIssues.map((issue) => personalWorkReferenceForIssue(issue, now))); setSelectedIssues([]); }}>{`Add to My work (${selectedCurrentIssues.length})`}</PrimaryActionButton> : undefined}>Open issues</Header>} columnDefinitions={[{ id: "title", header: "Issue", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "issue", issue: item, repository: repository.fullName }); }}>{item.title}</Link><Box color="text-body-secondary">#{item.number} by {item.author}{issueReferences.has(`${repository.fullName.toLowerCase()}:${item.id}`) ? " · in My work" : ""}</Box></SpaceBetween> }, { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, referenceTime) }]} empty={<EmptyState title="No open issues" detail="This repository has no issues requiring triage." />} />,
             },
             {
               label: "Pipelines",
               id: "pipelines",
-              content: <Table variant="container" trackBy="id" items={runs} header={<Header variant="h2" counter={`(${runs.length})`}>Recent pipelines</Header>} columnDefinitions={[{ id: "run", header: "Pipeline", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); const failure = overview.workflowFailures.find((candidate) => candidate.id === item.id); openDrawer(failure ? { type: "workflow-failure", failure } : { type: "pipeline-run", run: item, repository: repository.fullName }); }}>{item.title}</Link><Box color="text-body-secondary">{item.name} #{item.number}</Box></SpaceBetween> }, { id: "branch", header: "Branch", cell: (item) => item.branch ?? "Unknown" }, { id: "status", header: "Result", cell: runStatus }, { id: "started", header: "Started", cell: (item) => relativeTime(item.createdAt, referenceTime) }]} empty={<EmptyState title="No pipeline results" detail="GitHub Actions returned no recent runs for this repository." />} />,
+              content: <Table variant="container" trackBy="id" selectionType="multi" selectedItems={selectedCurrentRuns} onSelectionChange={({ detail }) => setSelectedRuns(detail.selectedItems.map((run) => ({ ...run, repository: repository.fullName })))} isItemDisabled={(run) => runReferences.has(`${repository.fullName.toLowerCase()}:${run.id}`)} ariaLabels={{ selectionGroupLabel: "Select workflows to add to My work today", itemSelectionLabel: ({ selectedItems }, run) => runReferences.has(`${repository.fullName.toLowerCase()}:${run.id}`) ? `${run.title} is already in My work today` : `${selectedItems.includes(run) ? "Deselect" : "Select"} ${run.title}` }} items={runs.map((run) => ({ ...run, repository: repository.fullName }))} header={<Header variant="h2" counter={`(${runs.length})`} actions={selectedCurrentRuns.length ? <PrimaryActionButton onClick={() => { const now = new Date().toISOString(); onAddReferencesToMyWork(selectedCurrentRuns.map((run) => personalWorkReferenceForWorkflow(run, now))); setSelectedRuns([]); }}>{`Add to My work (${selectedCurrentRuns.length})`}</PrimaryActionButton> : undefined}>Recent pipelines</Header>} columnDefinitions={[{ id: "run", header: "Pipeline", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); const failure = overview.workflowFailures.find((candidate) => candidate.id === item.id); openDrawer(failure ? { type: "workflow-failure", failure } : { type: "pipeline-run", run: item, repository: repository.fullName }); }}>{item.title}</Link><Box color="text-body-secondary">{item.name} #{item.number}{runReferences.has(`${repository.fullName.toLowerCase()}:${item.id}`) ? " · in My work" : ""}</Box></SpaceBetween> }, { id: "branch", header: "Branch", cell: (item) => item.branch ?? "Unknown" }, { id: "status", header: "Result", cell: runStatus }, { id: "started", header: "Started", cell: (item) => relativeTime(item.createdAt, referenceTime) }]} empty={<EmptyState title="No pipeline results" detail="GitHub Actions returned no recent runs for this repository." />} />,
             },
-            ...(securityEligible ? [{ label: "Security", id: "security", content: <RepositorySecurityPanel key="security" security={security} repository={repository} overview={overview} openDrawer={openDrawer} /> }] : []),
+            ...(securityEligible ? [{ label: "Security", id: "security", content: <RepositorySecurityPanel key="security" security={security} repository={repository} overview={overview} personalWorkState={personalWorkState} onAddToMyWork={onAddReferencesToMyWork} openDrawer={openDrawer} /> }] : []),
             {
               label: "Infrastructure",
               id: "infrastructure",

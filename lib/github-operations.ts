@@ -5,7 +5,7 @@ import { analyzeRenovateUpdate } from "@/lib/renovate-update";
 import type { Issue, PullRequest, PullRequestWorkflow } from "@/components/types";
 
 const OPERATIONS_QUERY = `
-  query RepositoryOperations($owner: String!, $name: String!, $viewer: String!) {
+  query RepositoryOperations($owner: String!, $name: String!) {
     repository(owner: $owner, name: $name) {
       pullRequests(first: 100, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
         nodes {
@@ -32,7 +32,7 @@ const OPERATIONS_QUERY = `
       mergedPullRequests: pullRequests(first: 30, states: MERGED, orderBy: {field: UPDATED_AT, direction: DESC}) {
         nodes { databaseId number title url mergedAt updatedAt headRefName author { login __typename } labels(first: 30) { nodes { name } } }
       }
-      issues(first: 50, states: OPEN, filterBy: {assignee: $viewer}, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      issues(first: 100, states: OPEN, orderBy: {field: UPDATED_AT, direction: DESC}) {
         nodes {
           databaseId number title url createdAt updatedAt
           author { login }
@@ -412,7 +412,7 @@ function presentGraphPull(pull: GraphPull, viewer: string, rules: ProtectionRule
 export async function loadRepositoryOperations(repository: string, viewer: string) {
   const [owner, name] = repository.split("/");
   const [operations, protection] = await Promise.all([
-    githubGraphQL<OperationsResult>(OPERATIONS_QUERY, { owner, name, viewer }),
+    githubGraphQL<OperationsResult>(OPERATIONS_QUERY, { owner, name }),
     githubGraphQL<ProtectionResult>(PROTECTION_QUERY, { owner, name }).catch(() => null),
   ]);
   if (!operations.repository) throw new Error(`GitHub did not return ${repository}.`);
@@ -440,5 +440,6 @@ export async function loadRepositoryOperations(repository: string, viewer: strin
     labels: issue.labels.nodes,
     assignees: issue.assignees.nodes.map((assignee) => assignee.login),
   }));
-  return { pulls, mergedPulls, assignedIssues: issues };
+  const assignedIssues = issues.filter((issue) => issue.assignees?.some((assignee) => assignee.toLowerCase() === viewer.toLowerCase()));
+  return { pulls, mergedPulls, openIssues: issues, assignedIssues };
 }
