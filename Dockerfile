@@ -20,7 +20,8 @@ ENV NODE_ENV=production \
     PORT=3001 \
     UDS_SCOUT_SETTINGS_PATH=/data/settings.json
 
-RUN apk add --no-cache openssh-client \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache openssh-client \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx \
     && addgroup --system --gid 1001 nodejs \
