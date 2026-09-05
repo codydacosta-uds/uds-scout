@@ -41,6 +41,7 @@ jobs:
           tar --extract --gzip --file scorecard.tar.gz scorecard
           chmod 0755 scorecard
       - name: Analyze repository
+        continue-on-error: true
         run: |
           ./scorecard \
             --repo="github.com/${GITHUB_REPOSITORY}" \

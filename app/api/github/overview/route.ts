@@ -99,7 +99,7 @@ function presentRun(run: RawRun, defaultBranch: string, details?: { failedJob: s
   };
 }
 
-function unresolvedFailures(runs: RawRun[], defaultBranch: string) {
+function unresolvedFailures(runs: RawRun[], defaultBranch: string, activeBranches?: Set<string>) {
   const latestByWorkflowBranch = new Map<string, RawRun>();
   [...runs]
     .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
@@ -109,7 +109,7 @@ function unresolvedFailures(runs: RawRun[], defaultBranch: string) {
         : `${run.name}:${run.head_branch ?? "unknown"}`;
       if (!latestByWorkflowBranch.has(key)) latestByWorkflowBranch.set(key, run);
     });
-  return [...latestByWorkflowBranch.values()].filter((run) => pipelineFailed(run.conclusion));
+  return [...latestByWorkflowBranch.values()].filter((run) => pipelineFailed(run.conclusion) && (run.head_branch === defaultBranch || !activeBranches || activeBranches.has(run.head_branch ?? "")));
 }
 
 async function loadFailureDetails(repository: string, run: RawRun) {
@@ -136,7 +136,8 @@ function attentionForRepository(group: OperationalGroup, latestDefaultRun: RawRu
   const blocked = pulls.filter((pull) => pull.workflow.state === "blocked");
   const ready = pulls.filter((pull) => pull.workflow.state === "ready-to-merge");
   const needsOwnership = pulls.filter((pull) => !pull.workflow.automation && pull.assignees.length === 0 && !pull.draft);
-  const nonDefaultFailure = unresolvedFailures(group.runs, group.repository.default_branch).find((run) => run.head_branch !== group.repository.default_branch && !routineAutomationRun(group, run));
+  const activeBranches = new Set(group.openPulls.map((pull) => pull.head));
+  const nonDefaultFailure = unresolvedFailures(group.runs, group.repository.default_branch, activeBranches).find((run) => run.head_branch !== group.repository.default_branch && !routineAutomationRun(group, run));
 
   if (latestDefaultRun && pipelineFailed(latestDefaultRun.conclusion)) {
     return { level: "action-required" as const, reason: `The latest ${group.repository.default_branch} workflow failed.` };
@@ -292,7 +293,7 @@ export async function GET() {
 
     const pipelineRuns = operationalGroups.flatMap((group) => group.runs.map((rawRun) => ({ ...presentRun(rawRun, group.repository.default_branch, { failedJob: null, failedStep: null }), repository: group.repository.full_name })));
 
-    const workflowFailures: WorkflowFailure[] = (await Promise.all(operationalGroups.flatMap((group) => unresolvedFailures(group.runs, group.repository.default_branch).filter((run) => !routineAutomationRun(group, run)).map(async (rawRun) => {
+    const workflowFailures: WorkflowFailure[] = (await Promise.all(operationalGroups.flatMap((group) => unresolvedFailures(group.runs, group.repository.default_branch, new Set(group.openPulls.map((pull) => pull.head))).filter((run) => !routineAutomationRun(group, run)).map(async (rawRun) => {
       const matchingPull = group.openPulls.find((pull) => pull.workflow.headSha === rawRun.head_sha && pull.workflow.checks.failing > 0);
       const needsDetails = rawRun.head_branch === group.repository.default_branch || Boolean(matchingPull);
       const details = needsDetails ? await loadFailureDetails(group.repository.full_name, rawRun) : { failedJob: null, failedStep: null };
