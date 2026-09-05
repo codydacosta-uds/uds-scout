@@ -109,7 +109,14 @@ export type DeploymentRoot = {
 export type UdsPackage = {
   name: string;
   version: string | null;
+  flavor?: "upstream" | "registry1" | "unicorn" | null;
+  architecture?: string;
   repository: string | null;
+  registryUrl: string | null;
+  latestVersion?: string | null;
+  latestReleaseUrl?: string | null;
+  latestRegistryUrl?: string | null;
+  updateStatus?: "current" | "update-available" | "unknown";
   local: boolean;
   optionalComponents: string[];
   configSections: string[];

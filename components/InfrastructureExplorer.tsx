@@ -27,7 +27,8 @@ import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import Tabs from "@cloudscape-design/components/tabs";
 import TextFilter from "@cloudscape-design/components/text-filter";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { toPng } from "html-to-image";
 import { DrawerPrimaryButton } from "./operations-ui";
 import type {
   InfrastructureCategory,
@@ -177,6 +178,9 @@ export function InfrastructureExplorer({
   const [system, setSystem] = useState("all");
   const [ownership, setOwnership] = useState("root");
   const [graphMode, setGraphMode] = useState("systems");
+  const [exporting, setExporting] = useState(false);
+  const [markdownCopied, setMarkdownCopied] = useState(false);
+  const graphRef = useRef<HTMLDivElement>(null);
 
   const categoryOptions = [
     { label: "All categories", value: "all" },
@@ -240,6 +244,62 @@ export function InfrastructureExplorer({
   );
 
   const rootVariables = data.variables.filter((variable) => !variable.name.startsWith("module."));
+
+  const markdownForGraph = () => {
+    const rows = graph.nodes.flatMap((node) => node.data.infrastructure ? [node.data.infrastructure] : []);
+    const lines = [
+      `*${system === "all" ? "SWF infrastructure" : `${system} infrastructure`} dependencies*`,
+      `_${graphMode === "systems" ? "System overview" : "Component dependencies"} · ${rows.length} resources · ${graph.edges.length} relationships_`,
+      "",
+      "```",
+      "Resource                              Kind          Ownership",
+      "------------------------------------  ------------  ------------------",
+      ...rows.map((node) => `${node.name.padEnd(36).slice(0, 36)}  ${node.kind.padEnd(12)}  ${node.managed ? "Managed" : "Existing reference"}`),
+      "```",
+      "",
+      "*Source links*",
+      ...rows.map((node) => `• <${node.sourceUrl}|${node.file}:${node.line}>`),
+    ];
+    return lines.join("\n");
+  };
+
+  const copyMarkdown = async () => {
+    try {
+      await navigator.clipboard.writeText(markdownForGraph());
+      setMarkdownCopied(true);
+      window.setTimeout(() => setMarkdownCopied(false), 2500);
+    } catch (error) {
+      console.error("Infrastructure Markdown copy failed", error);
+    }
+  };
+
+  const downloadMarkdown = () => {
+    const link = document.createElement("a");
+    link.download = `uds-scout-${graphMode === "systems" ? "systems" : `${system}-dependencies`}.md`;
+    link.href = URL.createObjectURL(new Blob([markdownForGraph()], { type: "text/markdown;charset=utf-8" }));
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const exportGraph = async () => {
+    if (!graphRef.current) return;
+    setExporting(true);
+    try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const dataUrl = await toPng(graphRef.current, { backgroundColor: "#0b0c0e", pixelRatio: 2, cacheBust: true, filter: (node) => {
+        const element = node as HTMLElement;
+        return !element.classList?.contains("react-flow__controls") && !element.classList?.contains("react-flow__attribution");
+      } });
+      const link = document.createElement("a");
+      link.download = `uds-scout-${graphMode === "systems" ? "systems" : `${system}-dependencies`}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error("Infrastructure graph export failed", error);
+    } finally {
+      setExporting(false);
+    }
+  };
   const rootOutputs = data.outputs.filter((output) => !output.name.startsWith("module."));
 
   const filters = (
@@ -262,7 +322,7 @@ export function InfrastructureExplorer({
         <Header
           variant="h1"
           description="Explore what the SWF Terraform stack deploys, references, and connects without reading the configuration."
-          actions={<Button href={data.sourceUrl} external>Open Terraform source</Button>}
+          actions={<SpaceBetween direction="horizontal" size="xs"><Button className="infrastructure-export-button" iconName="download" loading={exporting} onClick={() => void exportGraph()}>Export image</Button><Button className="infrastructure-export-button" iconName="copy" onClick={() => void copyMarkdown()}>{markdownCopied ? "Copied" : "Copy for Slack"}</Button><Button className="infrastructure-export-button" iconName="download" onClick={downloadMarkdown}>Download Markdown</Button><Button href={data.sourceUrl} external>Open Terraform source</Button></SpaceBetween>}
         >
           Infrastructure Explorer
         </Header>
@@ -324,6 +384,7 @@ export function InfrastructureExplorer({
                           options={[{ label: "System overview", value: "systems" }, { label: "Component dependencies", value: "components" }]}
                         />
                         {graphMode === "components" ? filters : <Box color="text-body-secondary">Click a system to filter its components.</Box>}
+                        <Button variant="icon" iconName="download" loading={exporting} ariaLabel="Export image" onClick={() => void exportGraph()} /><Button variant="icon" iconName="copy" ariaLabel={markdownCopied ? "Markdown copied" : "Copy for Slack"} onClick={() => void copyMarkdown()} /><Button variant="icon" iconName="download" ariaLabel="Download Markdown" onClick={downloadMarkdown} />
                       </div>
                       {graphMode === "components" && focusedSystem ? (
                         <Container header={<Header variant="h3">{system} infrastructure</Header>}>
@@ -339,7 +400,8 @@ export function InfrastructureExplorer({
                         </Container>
                       ) : null}
                       {graphMode === "components" && "truncated" in graph && graph.truncated ? <StatusIndicator type="info">Showing the first 80 matches. Narrow the category, system, or search filter to see a focused graph.</StatusIndicator> : null}
-                      <div className="infrastructure-graph" aria-label="Infrastructure dependency graph">
+                      <div ref={graphRef} className={`infrastructure-graph${exporting ? " infrastructure-graph-exporting" : ""}`} aria-label="Infrastructure dependency graph">
+                        <div className="infrastructure-graph-export-header"><strong>{system === "all" ? "SWF infrastructure dependency map" : `${system} infrastructure dependencies`}</strong><span>{graphMode === "systems" ? "System overview" : "Component dependencies"} · {graph.nodes.length} nodes · {graph.edges.length} relationships</span></div>
                         <ReactFlow
                           key={`${graphMode}:${system}:${category}:${ownership}:${query}`}
                           nodes={graph.nodes}

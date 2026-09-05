@@ -8,7 +8,7 @@ import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import Table from "@cloudscape-design/components/table";
 import type { ReactNode } from "react";
 import type { DrawerSelection } from "./operations-types";
-import { EmptyState, pullWorkflowStatus, relativeTime } from "./operations-ui";
+import { EmptyState, pullWorkflowStatus, PullAuthor, relativeTime } from "./operations-ui";
 import type { PullRequest } from "./types";
 
 export type RenovateCheckFilter = "priority" | "all" | "major" | "failed" | "running" | "passed" | "no-checks";
@@ -127,7 +127,7 @@ export function RenovateUpdatesTable({ items, referenceTime, openDrawer, header,
       header={header}
       items={items}
       columnDefinitions={[
-        { id: "update", header: "Update", cell: (item) => <div className={isMajorRenovateUpdate(item) ? "renovate-major-update" : undefined}><SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween></div> },
+        { id: "update", header: "Update", cell: (item) => <div className={isMajorRenovateUpdate(item) ? "renovate-major-update" : undefined}><SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by <PullAuthor pull={item} /></Box></SpaceBetween></div> },
         { id: "labels", header: "Version impact / labels", cell: (item) => <RenovateUpdateLabels pull={item} /> },
         { id: "pipeline", header: "Pipeline / checks", cell: (item) => <PullRequestCheckStatus pull={item} onOpen={() => openDrawer({ type: "pull-request", pull: item, repository: item.repository, focus: "failed-checks" })} /> },
         { id: "approvals", header: "Approvals", cell: (item) => <RenovateApprovalStatus pull={item} /> },

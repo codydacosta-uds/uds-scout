@@ -24,6 +24,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@xyflow/react": "^12.11.2",
+    "html-to-image": "^1.11.13",
     "js-yaml": "^5.2.3",
     "next": "^16.0.0",
     "react": "^19.0.0",

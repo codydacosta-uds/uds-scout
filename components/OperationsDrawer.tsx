@@ -155,7 +155,7 @@ function DrawerPullOption({ pull, repository, generatedAt, onOpen, children }: {
     <Container>
       <SpaceBetween size="xxs">
         <Link href={pull.url} onFollow={(event) => { event.preventDefault(); onOpen(); }}>{pull.title}</Link>
-        <Box color="text-body-secondary">{repository} · #{pull.number} · by {pull.author} · opened {relativeTime(pull.createdAt, generatedAt)}</Box>
+        <Box color="text-body-secondary">{repository} · #{pull.number} · by <PullAuthor pull={pull} /> · opened {relativeTime(pull.createdAt, generatedAt)}</Box>
         {children}
       </SpaceBetween>
     </Container>

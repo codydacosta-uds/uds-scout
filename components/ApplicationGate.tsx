@@ -26,7 +26,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { UDS_SCOUT_REPOSITORY_URL, type WorkspacePreset } from "@/lib/repository-constants";
 import { RENOVATE_REVIEW_DAYS, type RenovateReviewDay } from "@/lib/renovate-review";
-import { ActionSuccessFlashbar, PrimaryActionButton, SaveButton, type ActionConfirmation } from "./action-ui";
+import { ActionSuccessToast, PrimaryActionButton, SaveButton, type ActionConfirmation } from "./action-ui";
 import { InfoPopover } from "./info-ui";
 import type { SetupGitlabProject, SetupGitlabProjectCatalog, SetupGitlabViewer, SetupRepository, SetupRepositoryCatalog, SetupStatus, SetupViewer } from "./setup-types";
 
@@ -697,15 +697,18 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
           </SpaceBetween>
 
           {error ? <Flashbar items={[{ type: "error", header: "Setup could not continue", content: error, dismissible: true, onDismiss: () => setError(null) }]} /> : null}
-          {actionConfirmation ? <ActionSuccessFlashbar confirmation={actionConfirmation} onDismiss={() => setActionConfirmation(null)} /> : null}
-          {repositoryUpdateStatus ? <Flashbar items={[{
-            type: repositoryUpdateStatus === "failed" ? "warning" : "info",
-            header: repositoryUpdateStatus === "rebuilding" ? "Refreshing the Scout dashboard" : "Dashboard refresh pending",
-            content: repositoryUpdateStatus === "rebuilding"
-              ? "Your repository changes are saved. Scout is refreshing pull requests, pipelines, releases, and package health now."
-              : "Scout could not prebuild the dashboard. It will retry when you return to the homepage.",
-            action: repositoryUpdateStatus === "failed" ? <div className="flashbar-centered-action"><Button onClick={() => router.push("/")}>Open dashboard</Button></div> : undefined,
-            dismissible: repositoryUpdateStatus === "failed",
+          {actionConfirmation ? <ActionSuccessToast confirmation={actionConfirmation} onDismiss={() => setActionConfirmation(null)} /> : null}
+          {repositoryUpdateStatus === "rebuilding" ? <ActionSuccessToast
+            confirmation={{ header: "Refreshing the Scout dashboard", content: "Your repository changes are saved. Scout is refreshing pull requests, pipelines, releases, and package health now." }}
+            onDismiss={() => setRepositoryUpdateStatus(null)}
+            duration={60_000}
+          /> : null}
+          {repositoryUpdateStatus === "failed" ? <Flashbar items={[{
+            type: "warning",
+            header: "Dashboard refresh pending",
+            content: "Scout could not prebuild the dashboard. It will retry when you return to the homepage.",
+            action: <div className="flashbar-centered-action"><Button onClick={() => router.push("/")}>Open dashboard</Button></div>,
+            dismissible: true,
             onDismiss: () => setRepositoryUpdateStatus(null),
           }]} /> : null}
           {repositoriesLoading ? <div className="setup-repository-loading-banner"><Flashbar items={[{ type: "info", header: "Fetching repository data", content: "Please wait while we load repositories available to your GitHub account." }]} /></div> : null}

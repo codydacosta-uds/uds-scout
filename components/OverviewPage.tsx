@@ -29,7 +29,7 @@ import { isSecurityIntelligenceRepository } from "@/lib/repository-constants";
 import { PrimaryActionButton } from "./action-ui";
 import { InfoPopover as PanelInfo } from "./info-ui";
 import type { DrawerSelection } from "./operations-types";
-import { EmptyState, MetricCard, pipelineStatus, pullWorkflowStatus, relativeTime, repositoryAttentionAction, repositoryHealth, udsCommonStatusAction } from "./operations-ui";
+import { EmptyState, MetricCard, pipelineStatus, PullAuthor, pullWorkflowStatus, relativeTime, repositoryAttentionAction, repositoryHealth, udsCommonStatusAction } from "./operations-ui";
 import { filterRenovateUpdatesByCheck, isMajorRenovateUpdate, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
 import type { RepositorySecurity, SecurityFinding, SecurityWorkspace, Vulnerability } from "./security-types";
 import type { GitLabWorkItems, Issue, Overview, PipelineRun, PullRequest, RepositoryCatalog, WorkflowFailure } from "./types";
@@ -145,7 +145,6 @@ const overviewCardOrderKey = (viewer: string) => `uds-scout:${viewer.toLowerCase
 const legacyOverviewCardOrderKey = (viewer: string) => `d2d-operations:${viewer.toLowerCase()}:overview-card-order`;
 const renovateReviewVisibilityKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:renovate-review-visibility`;
 const firstRunWelcomeKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:overview-welcome:v1`;
-const udsCommonAttentionDismissalKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:uds-common-attention:v1`;
 const myWorkSortKey = (viewer: string) => `uds-scout:${viewer.toLowerCase()}:my-work-sort:v1`;
 
 function myWorkReason(pull: MyWorkPull, addedByViewerOnly: boolean) {
@@ -222,17 +221,6 @@ function pipelineStatusForMyWork(run: PipelineRun) {
   return run.conclusion ?? "Unknown";
 }
 
-function udsCommonAttentionFingerprint(overview: Overview) {
-  if (!overview.udsCommon.needsAttention) return null;
-  return JSON.stringify({
-    latestVersion: overview.udsCommon.latestVersion,
-    repositories: overview.udsCommon.repositories
-      .filter((repository) => repository.status !== "current")
-      .map((repository) => ({ repository: repository.repository, status: repository.status, versions: [...repository.versions].sort() }))
-      .sort((left, right) => left.repository.localeCompare(right.repository)),
-  });
-}
-
 function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -290,7 +278,6 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
   const [showWeeklyRenovateReview, setShowWeeklyRenovateReview] = useState(false);
   const [renovateCheckFilter, setRenovateCheckFilter] = useState<RenovateCheckFilter>("priority");
   const [welcomeVisible, setWelcomeVisible] = useState(false);
-  const [udsCommonWarningVisible, setUdsCommonWarningVisible] = useState(false);
   const [myWorkSort, setMyWorkSort] = useState<MyWorkSort>("priority");
   const [myWorkView, setMyWorkView] = useState<MyWorkView>("all");
   const [selectedMyWork, setSelectedMyWork] = useState<MyWorkQueueItem[]>([]);
@@ -315,7 +302,6 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
     : overview.udsCore.comparison === "behind"
       ? "UDS Core version needs alignment"
       : null;
-  const udsCommonWarningFingerprint = udsCommonAttentionFingerprint(overview);
 
   useEffect(() => {
     const updateLocalTime = () => {
@@ -350,24 +336,6 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
       setMyWorkSort("priority");
     }
   }, [overview.viewer.login]);
-
-  useEffect(() => {
-    const dismissalKey = udsCommonAttentionDismissalKey(overview.viewer.login);
-    if (!udsCommonWarningFingerprint) {
-      setUdsCommonWarningVisible(false);
-      try {
-        window.localStorage.removeItem(dismissalKey);
-      } catch {
-        // Leave the resolved warning hidden when browser storage is unavailable.
-      }
-      return;
-    }
-    try {
-      setUdsCommonWarningVisible(window.localStorage.getItem(dismissalKey) !== udsCommonWarningFingerprint);
-    } catch {
-      setUdsCommonWarningVisible(true);
-    }
-  }, [overview.viewer.login, udsCommonWarningFingerprint]);
 
   useEffect(() => {
     try {
@@ -422,17 +390,6 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
   const startWithMyWork = () => {
     dismissWelcome();
     window.setTimeout(() => document.getElementById("my-work-today")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }), 50);
-  };
-
-  const dismissUdsCommonWarning = () => {
-    if (udsCommonWarningFingerprint) {
-      try {
-        window.localStorage.setItem(udsCommonAttentionDismissalKey(overview.viewer.login), udsCommonWarningFingerprint);
-      } catch {
-        // Keep the warning dismissed for this view when browser storage is unavailable.
-      }
-    }
-    setUdsCommonWarningVisible(false);
   };
 
   const updateMyWorkSort = (sort: MyWorkSort) => {
@@ -684,17 +641,6 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
       }
     >
       <SpaceBetween size="l">
-        {overview.capabilities.sonic && udsCommonWarningVisible ? (
-          <Flashbar items={[{
-            type: "warning",
-            header: `${overview.udsCommon.needsAttention} ${overview.udsCommon.needsAttention === 1 ? "repository needs" : "repositories need"} UDS Common attention`,
-            content: `The latest UDS Common release is ${overview.udsCommon.latestVersion ?? "unavailable"}. Review outdated, missing, or unverifiable task includes.`,
-            action: <div className="pipeline-alert-action"><Button onClick={() => openDrawer({ type: "uds-common" })}>View UDS Common status</Button></div>,
-            dismissible: true,
-            onDismiss: dismissUdsCommonWarning,
-          }]} />
-        ) : null}
-
         {customizeCardsOpen ? (
           <Flashbar items={[{
             type: "info",
@@ -706,6 +652,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
 
         <div id="my-work-today" className="overview-scroll-target"><Table
           variant="container"
+          className="my-work-table"
           stickyHeader
           wrapLines
           trackBy="key"
@@ -871,7 +818,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
           trackBy={myWorkItemKey}
           items={hiddenWorkItems}
           columnDefinitions={[
-            { id: "work", header: "Work item", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); setHiddenMyWorkOpen(false); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by {item.author}</Box></SpaceBetween> },
+            { id: "work", header: "Work item", cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} onFollow={(event) => { event.preventDefault(); setHiddenMyWorkOpen(false); openDrawer({ type: "pull-request", pull: item, repository: item.repository }); }}>{item.title}</Link><Box color="text-body-secondary">{item.repository} · #{item.number} · by <PullAuthor pull={item} /></Box></SpaceBetween> },
             { id: "state", header: "Status", cell: pullWorkflowStatus },
             { id: "action", header: "Scope", cell: (item) => <Button variant="inline-link" onClick={() => restoreMyWorkItem(item)}>Restore</Button> },
           ]}

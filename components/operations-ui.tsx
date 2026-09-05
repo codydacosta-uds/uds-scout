@@ -93,9 +93,18 @@ export function udsCommonStatusAction(item: UdsCommonRepository | Repository["ud
   return onDetails ? <Button variant="inline-link" onClick={onDetails}>{status}</Button> : status;
 }
 
+export function isRenovateBotAuthor(author: string) {
+  return /^(?:renovate(?:\[bot\]|-bot)?|renovate-bot\[bot\])$/i.test(author);
+}
+
+export function RenovateBotIndicator() {
+  return <span className="renovate-bot-indicator" title="Renovate bot" aria-label="Renovate bot">BOT</span>;
+}
+
 export function PullAuthor({ pull }: { pull: PullRequest }) {
-  if (pull.author === "ghost") return <Box color="text-body-secondary">ghost</Box>;
-  return <Link href={`https://github.com/${encodeURIComponent(pull.author)}`} external>{pull.author}</Link>;
+  if (isRenovateBotAuthor(pull.author)) return <span className="pull-author"><RenovateBotIndicator /></span>;
+  const author = pull.author === "ghost" ? <span className="pull-author-muted">ghost</span> : <Link href={`https://github.com/${encodeURIComponent(pull.author)}`} external>{pull.author}</Link>;
+  return <span className="pull-author">{author}</span>;
 }
 
 export function PullPeople({ people, empty = "Unassigned" }: {
@@ -148,7 +157,7 @@ export function DrawerKeyValueList({ items }: {
   );
 }
 
-export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, errorValue = false, warningHighlight = false, successHighlight = false }: {
+export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, errorValue = false, warningHighlight = false, successHighlight = false, valueClassName }: {
   title: string;
   value: React.ReactNode;
   description: string;
@@ -159,6 +168,7 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
   errorValue?: boolean;
   warningHighlight?: boolean;
   successHighlight?: boolean;
+  valueClassName?: string;
 }) {
   const className = ["metric-card", attention && "metric-card-attention", warningHighlight && "metric-card-warning", successHighlight && "metric-card-success"].filter(Boolean).join(" ");
   const indicatorIcon = indicator?.type === "error" ? "status-negative"
@@ -173,7 +183,7 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
       {indicator && onDetails ? <button type="button" className={`metric-card-indicator metric-card-indicator-${indicator.type}`} onClick={onDetails} aria-label={`${indicator.label}. View details`} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></button> : null}
       <SpaceBetween size="s">
         <div className="metric-card-heading"><Box variant="awsui-key-label">{title}</Box>{info}</div>
-        <Box variant="awsui-value-large" color={attention || errorValue ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
+        <Box className={valueClassName} variant="awsui-value-large" color={attention || errorValue ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
         <Box color="text-body-secondary">{description}</Box>
         {onDetails ? <Button variant="inline-link" onClick={onDetails}>View details</Button> : null}
       </SpaceBetween>

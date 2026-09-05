@@ -6,6 +6,22 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Added
 
+- Added a server-side Security monitor that starts with Scout, checks configured repositories without requiring a browser Security page to be open, and refreshes advisory data every 15 minutes.
+- Added latest available package versions and update status to the SONIC bundle package table, with architecture-qualified registry links. Updates sort first, unknown results follow, and current packages sort last; status filtering is also available.
+- SONIC package comparisons now preserve and display the bundle-selected flavor and architecture, and only compare against releases for that same flavor.
+- Replaced pink-toned error accents with the established neutral red error color.
+- Added PNG export for the currently displayed Infrastructure Explorer dependency graph, with a clean export header and editor controls removed.
+- Added Copy Markdown for the current Infrastructure Explorer graph, including a Slack-friendly resource table with ownership and source links.
+- Added a browser-local light mode toggle to the top navigation using Cloudscape light-mode defaults and Scout-owned light surface overrides.
+- Infrastructure Explorer now retains its last successful snapshot during background refreshes and route changes instead of replacing it with a loading state.
+- Reorganized the side navigation into My work, Work queues, Infrastructure, Tracked repositories, External workspaces, and workspace tools.
+- Added automatic Slack webhook alerts for High and Critical vulnerabilities in package versions currently deployed by SONIC, using Grafana-style attachments with severity-based deduplication windows.
+- Added a Latest release card to `uds-packages` repository pages, linking the current stable GitHub release tag.
+
+- Added a SONIC bundle versions panel to the tracked repository page, with architecture-qualified links to registry packages such as Artifactory `7.161.16-uds.0-upstream-amd64`.
+
+- Added a compact `BOT` indicator for pull requests authored by Renovate across pull-request tables, work queues, and detail drawers.
+
 - Added a policy-focused Vitest suite with enforced coverage for Test Lab, GitLab mutation, token-handling, repository-scope, security normalization, SBOM/OCI, Terraform, Renovate, UDS Common, local-settings, and release-note safety boundaries, plus restricted-runner shell checks and desktop/narrow Playwright smoke tests.
 - Added credential-free CI, GitHub Advanced Security-gated CodeQL and dependency review, production dependency audit, ShellCheck, Trivy source/secret/configuration and production-image scanning workflows, with commit-pinned actions, Dependabot updates, coverage and workflow badges, and retained failure reports.
 - Added a private-repository-compatible OpenSSF Scorecard scan with a checksum-verified CLI, workflow summary scores, retained JSON reports, and a README workflow badge.
@@ -27,6 +43,14 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Changed
 
+- Unified operational and Security refresh warnings in the AppLayout notification area above page content instead of rendering separate banners beneath individual page headers.
+- Reduced the Security context card value size for easier scanning.
+- Constrained My work today to a scrollable table so long personal queues do not make the overview page excessively tall.
+- Removed visible external-link arrow icons throughout the application while preserving external-link behavior and accessibility labels.
+- Reduced the Latest release card version text size for easier scanning.
+- Stacked simultaneous footer acknowledgement toasts in one bottom-right notification area so new messages remain visible instead of overlapping.
+- Moved settings-save and dashboard-update acknowledgements to the bottom-right footer toast treatment; operational errors remain in the notification area.
+- Removed the overview Flashbar that announced repositories needing UDS Common attention; UDS Common alignment remains available through the version card and repository status details.
 - Refocused Security Intelligence on Critical and High upstream application advisories, unique CVE decisions, and correlated update pull requests; package flavors and repeated image occurrences now remain internal evidence instead of separate maintainer queues.
 - Removed the repository-wide release/flavor security panel, reduced container findings to secondary context, and now refreshes lightweight upstream advisory sources every 15 minutes without repeating full image analysis.
 - Expanded automatic upstream identification with Zarf package URLs, chart URLs, official GHCR ownership, and reusable product profiles, while preserving explicit gaps for ambiguous products.

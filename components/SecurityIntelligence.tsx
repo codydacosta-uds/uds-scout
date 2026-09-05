@@ -251,11 +251,10 @@ export function RepositorySecurityPanel({ security, repository, overview, person
   );
 }
 
-export function GlobalSecurityPage({ workspace, overview, loading, error, refresh, navigate }: {
+export function GlobalSecurityPage({ workspace, overview, loading, refresh, navigate }: {
   workspace: SecurityWorkspace | null;
   overview: Overview;
   loading: boolean;
-  error: string | null;
   refresh: () => void;
   navigate: (href: string) => void;
 }) {
@@ -276,7 +275,6 @@ export function GlobalSecurityPage({ workspace, overview, loading, error, refres
   return (
     <ContentLayout header={<Header variant="h1" description="High-impact upstream application advisories with container dependency context." info={<InfoPopover header="Security Intelligence">Scout identifies the upstream product from package, chart, image, and SBOM metadata, then prioritizes authoritative Critical and High application advisories. Exact package and flavor evidence remains internal unless needed to explain container visibility. Coverage reflects only sources Scout could evaluate, never an implied zero.</InfoPopover>} actions={<Button iconName="refresh" variant="icon" ariaLabel="Refresh security intelligence" loading={loading} onClick={refresh} />}>Security intelligence</Header>}>
       <SpaceBetween size="l">
-        {error ? <Flashbar items={[{ type: workspace ? "warning" : "error", header: "Security intelligence could not be refreshed", content: workspace ? "Showing the last security state loaded by Scout." : error }]} /> : null}
         <Container header={<Header variant="h2" description="Security state that may change a maintainer decision.">Maintainer security queue</Header>}>
           {workspace ? <KeyValuePairs columns={3} items={[
             { label: "Application versions requiring action", value: affectedApplications.size },

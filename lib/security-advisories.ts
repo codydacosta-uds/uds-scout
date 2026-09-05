@@ -281,7 +281,7 @@ export async function queryNvdApplicationAdvisories(cpe: string, version: string
       source: "NVD",
     }];
   })).then((matches) => {
-    nvdCache.set(key, { value: matches, expires: Date.now() + 12 * 60 * 60_000 });
+    nvdCache.set(key, { value: matches, expires: Date.now() + UPSTREAM_ADVISORY_TTL });
     return matches;
   }).finally(() => nvdInflight.delete(key));
   nvdInflight.set(key, request);

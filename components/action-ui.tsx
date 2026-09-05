@@ -44,6 +44,15 @@ export function ActionSuccessFlashbar({ confirmation, onDismiss }: {
 }
 
 /** Temporary acknowledgement for quick actions that should not move surrounding content. */
+function successToastContainer() {
+  const existing = document.querySelector<HTMLElement>(".action-success-toast-stack");
+  if (existing) return existing;
+  const container = document.createElement("div");
+  container.className = "action-success-toast-stack";
+  document.body.appendChild(container);
+  return container;
+}
+
 export function ActionSuccessToast({ confirmation, onDismiss, duration = 5_000 }: {
   confirmation: ActionConfirmation;
   onDismiss: () => void;
@@ -77,6 +86,6 @@ export function ActionSuccessToast({ confirmation, onDismiss, duration = 5_000 }
       </div>
       <Button variant="icon" iconName="close" ariaLabel="Dismiss notification" onClick={() => setExiting(true)} />
     </div>,
-    document.body,
+    successToastContainer(),
   );
 }

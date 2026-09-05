@@ -12,6 +12,7 @@ import type {
 
 type SourceFile = { path: string; content: string };
 type BundleDocument = {
+  metadata?: { architecture?: string };
   packages?: Array<{
     name?: string;
     ref?: string;
@@ -32,6 +33,25 @@ function source(repository: string, branch: string, file: SourceFile, needle: Re
     line,
     url: `https://github.com/${repository}/blob/${branch}/${file.path}#L${line}`,
   };
+}
+
+function packageVersionSource(repository: string, branch: string, file: SourceFile, name: string, version: string | null): DeploymentSource {
+  const lines = file.content.split("\n");
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const packageIndex = lines.findIndex((line) => new RegExp(`^\\s*- name: ${escapedName}\\s*$`).test(line));
+  if (packageIndex >= 0) {
+    const nextPackage = lines.findIndex((line, index) => index > packageIndex && /^\\s*- name: /.test(line));
+    const packageLines = lines.slice(packageIndex, nextPackage < 0 ? lines.length : nextPackage);
+    const directRef = packageLines.findIndex((line) => /\\bref:/.test(line));
+    if (directRef >= 0) return source(repository, branch, file, lines[packageIndex + directRef]);
+    const anchor = packageLines.join("\n").match(/<<:\s*\*([A-Za-z0-9_-]+)/)?.[1];
+    if (anchor) {
+      const anchorIndex = lines.findIndex((line) => line.includes(`&${anchor}`));
+      const refIndex = anchorIndex < 0 ? -1 : lines.findIndex((line, index) => index >= anchorIndex && /\bref:/.test(line) && (!version || line.includes(version)));
+      if (refIndex >= 0) return source(repository, branch, file, lines[refIndex]);
+    }
+  }
+  return source(repository, branch, file, new RegExp(`^\\s*- name: ${escapedName}\\s*$`));
 }
 
 function taskSource(repository: string, branch: string, file: SourceFile, task: string) {
@@ -268,6 +288,7 @@ export function analyzeSonicDeployment({
 
   const sections = configSections(repository, branch, configFile, nodes);
   const sectionNames = new Set(sections.map((section) => section.name));
+  const architecture = bundle.metadata?.architecture ?? "amd64";
   const packages: UdsPackage[] = (bundle.packages ?? [])
     .filter((item): item is NonNullable<BundleDocument["packages"]>[number] & { name: string } => Boolean(item.name))
     .map((item, order) => {
@@ -275,12 +296,21 @@ export function analyzeSonicDeployment({
       return {
         name: item.name,
         version: item.ref ?? item["<<"]?.ref ?? null,
+        flavor: (item.ref ?? item["<<"]?.ref ?? "").match(/-(upstream|registry1|unicorn)(?:$|[-.])/i)?.[1].toLowerCase() as "upstream" | "registry1" | "unicorn" | undefined ?? null,
+        architecture,
         repository: item.repository ?? item["<<"]?.repository ?? null,
+        registryUrl: (() => {
+          const packageRepository = item.repository ?? item["<<"]?.repository;
+          const packageRef = item.ref ?? item["<<"]?.ref;
+          if (!packageRepository || !packageRef || !packageRepository.startsWith("registry.defenseunicorns.com/")) return null;
+          const registryPath = packageRepository.slice("registry.defenseunicorns.com/".length).split("/").map(encodeURIComponent).join("/");
+          return `https://registry.defenseunicorns.com/repo/${registryPath}/overview/${encodeURIComponent(`${packageRef}-${architecture}`)}`;
+        })(),
         local: Boolean(item.path),
         optionalComponents: item.optionalComponents ?? [],
         configSections: matchingSections,
         order: order + 1,
-        source: source(repository, branch, bundleFile, new RegExp(`^\\s*- name: ${item.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`)),
+        source: packageVersionSource(repository, branch, bundleFile, item.name, item.ref ?? item["<<"]?.ref ?? null),
       };
     });
 

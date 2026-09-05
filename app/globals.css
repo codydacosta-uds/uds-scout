@@ -111,7 +111,7 @@ body.awsui-dark-mode * {
   --color-text-segment-default-vi2vn9: #c9d1d9 !important;
   --color-text-segment-hover-65a2x8: #f0f3f6 !important;
   --color-text-segment-active-hlorbe: #ffffff !important;
-  --color-text-status-error-bwp1cm: #ff6f7d !important;
+  --color-text-status-error-bwp1cm: #f85149 !important;
   --color-text-status-info-2ftgrk: #b8bec7 !important;
   --color-text-status-warning-ylxn5k: var(--d2d-color-warning) !important;
   --color-text-notification-yellow-vjtdxk: #0b0c0e !important;
@@ -486,6 +486,11 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   width: min(320px, 100%);
 }
 
+#my-work-today .my-work-table [class*="awsui_wrapper_"] {
+  max-height: 480px;
+  overflow-y: auto;
+}
+
 .my-work-toolbar {
   display: flex;
   gap: 12px;
@@ -640,18 +645,95 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   outline-offset: 2px;
 }
 
+/* Keep external-link behavior without displaying Cloudscape's trailing arrow. */
+a[class*="awsui_link_"] span[class*="icon-wrapper"],
+[class*="external-icon"] {
+  display: none !important;
+}
+
+.metric-card-value-compact {
+  font-size: 1.25rem !important;
+  line-height: 1.25;
+}
+
+.latest-release-version {
+  font-size: 1.45rem;
+  line-height: 1.25;
+}
+
+.pull-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pull-author-muted {
+  color: var(--d2d-color-text-secondary);
+}
+
+.renovate-bot-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--d2d-color-warning);
+  color: #0b0c0e;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
 .pipeline-alert-action,
+.compact-app-notifications [class*="flash-body"] {
+  padding-block: 0.5rem !important;
+}
+
+.compact-app-notifications [class*="flash-message"] {
+  gap: 0.25rem;
+}
+
+.compact-app-notifications [class*="flash-header"],
+.compact-app-notifications [class*="flash-content"] {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.repository-common-update-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--d2d-color-warning);
+  box-shadow: 0 0 0 1px rgba(214, 165, 20, 0.25);
+}
+
 .flashbar-centered-action {
   display: flex;
   height: 100%;
   align-items: center;
 }
 
-.action-success-toast {
+.action-success-toast-stack {
   position: fixed;
   right: 24px;
   bottom: 88px;
   z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.action-success-toast {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
@@ -714,10 +796,15 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
 }
 
 @media (max-width: 700px) {
-  .action-success-toast {
+  .action-success-toast-stack {
     right: 16px;
     bottom: 124px;
+    align-items: stretch;
     width: calc(100vw - 32px);
+  }
+
+  .action-success-toast {
+    width: 100%;
   }
 }
 
@@ -863,8 +950,8 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
 }
 
 .uds-version-running-outdated {
-  color: #ff6f7d;
-  text-decoration-color: #ff6f7d;
+  color: #f85149;
+  text-decoration-color: #f85149;
   text-decoration-line: line-through;
   text-decoration-thickness: 2px;
 }
@@ -916,7 +1003,36 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   flex: 1;
 }
 
+.infrastructure-export-button {
+  min-height: 30px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+
+.infrastructure-graph-export-header {
+  display: none;
+}
+
+.infrastructure-graph-exporting .infrastructure-graph-export-header {
+  display: flex;
+  position: absolute;
+  z-index: 5;
+  top: 18px;
+  left: 22px;
+  right: 22px;
+  justify-content: space-between;
+  gap: 16px;
+  color: #f0f3f6;
+  font-size: 16px;
+}
+
+.infrastructure-graph-export-header span {
+  color: #8b949e;
+  font-size: 12px;
+}
+
 .infrastructure-graph {
+  position: relative;
   height: 620px;
   overflow: hidden;
   border: 1px solid #34383e;
@@ -1161,7 +1277,7 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
 }
 
 .test-lab-error-output {
-  color: #ff9da7;
+  color: #f85149;
 }
 
 .pull-request-description {
@@ -1563,6 +1679,10 @@ div[class*="awsui_drawers-mobile-triggers-container_"] {
     grid-template-columns: 1fr;
   }
 
+  #my-work-today .my-work-table [class*="awsui_wrapper_"] {
+    max-height: 420px;
+  }
+
   .my-work-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -1602,4 +1722,68 @@ div[class*="awsui_drawers-mobile-triggers-container_"] {
 
 .security-stage-list > * {
   min-width: 0;
+}
+
+/* Light mode uses Cloudscape's default light tokens; these overrides cover Scout-owned surfaces. */
+:root { color-scheme: light; }
+body.awsui-dark-mode { color-scheme: dark; }
+body:not(.awsui-dark-mode),
+body:not(.awsui-dark-mode) #__next {
+  background: #f5f6f7;
+  color: #16191f;
+}
+body:not(.awsui-dark-mode) .setup-welcome-panel,
+body:not(.awsui-dark-mode) .first-run-welcome,
+body:not(.awsui-dark-mode) .metric-card,
+body:not(.awsui-dark-mode) .infrastructure-graph-node {
+  border-color: #d1d5db;
+  background: #ffffff;
+  color: #16191f;
+}
+body:not(.awsui-dark-mode) .setup-welcome-visual,
+body:not(.awsui-dark-mode) .infrastructure-graph {
+  background: #eef0f2;
+}
+body:not(.awsui-dark-mode) .infrastructure-graph {
+  border-color: #d1d5db;
+}
+body:not(.awsui-dark-mode) .infrastructure-node-meta,
+body:not(.awsui-dark-mode) .pull-author-muted,
+body:not(.awsui-dark-mode) .data-freshness {
+  color: #5f6b7a;
+}
+body:not(.awsui-dark-mode) .infrastructure-graph-exporting .infrastructure-graph-export-header {
+  color: #16191f;
+}
+body:not(.awsui-dark-mode) .infrastructure-graph-export-header span {
+  color: #5f6b7a;
+}
+body:not(.awsui-dark-mode) {
+  --uds-scout-color-blue: #1769aa;
+  --uds-scout-color-blue-hover: #0d4f82;
+  --uds-scout-color-history: #6941a5;
+  --uds-scout-color-history-hover: #4c2d7a;
+}
+body:not(.awsui-dark-mode) .metric-value-pepr {
+  color: #a02c78;
+}
+body:not(.awsui-dark-mode) .metric-value-uds-cli {
+  color: #b54708;
+}
+body:not(.awsui-dark-mode) .drawer-failure-option {
+  border-color: #d1d5db;
+  background: #ffffff;
+}
+body:not(.awsui-dark-mode) .drawer-failure-option-selected,
+body:not(.awsui-dark-mode) .drawer-rerun-confirmation {
+  background: #fff8df;
+}
+body:not(.awsui-dark-mode) .drawer-failed-job {
+  background: #fff1f0;
+}
+body:not(.awsui-dark-mode) .drawer-key-value-item dt {
+  color: #5f6b7a;
+}
+body:not(.awsui-dark-mode) .drawer-key-value-item dd {
+  color: #16191f;
 }

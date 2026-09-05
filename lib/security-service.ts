@@ -24,6 +24,7 @@ import { GitHubAttestationSBOMResolver, OCIReferrerSBOMResolver, RepositoryAndRe
 import { containerFindingCategory, parseSbom, sbomAssociationText, type ParsedSbom } from "@/lib/security-sbom";
 import { discoverZarfPackages, loadRepositorySecurityTree, readRepositoryJson, type RepositorySecuritySource } from "@/lib/security-zarf";
 import { discoverPublishedZarfPackageSboms } from "@/lib/security-zarf-sbom";
+import { notifySonicDeployedSecurity } from "@/lib/security-slack";
 
 const CACHE_VERSION = 1;
 const SECURITY_ANALYSIS_VERSION = 22;
@@ -275,6 +276,7 @@ class SecurityRefreshService {
   private maximumConcurrency = 2;
 
   snapshot(repositories: string[], force = false): SecurityWorkspace {
+    void notifySonicDeployedSecurity();
     const selected = repositories.map((repository) => {
       const key = repository.toLowerCase();
       const current = this.store.repositories[key] ?? emptyRepository(repository);
@@ -601,6 +603,7 @@ class SecurityRefreshService {
       repository.analyzedAt = now;
       this.store.repositoryAnalysisVersions[key] = SECURITY_ANALYSIS_VERSION;
       this.checkpoint(repository);
+      void notifySonicDeployedSecurity();
     } catch (error) {
       repository.state = "error";
       repository.error = error instanceof Error ? error.message : "Security enrichment failed.";
@@ -611,7 +614,7 @@ class SecurityRefreshService {
   }
 }
 
-const SERVICE_IMPLEMENTATION_VERSION = 22;
+const SERVICE_IMPLEMENTATION_VERSION = 23;
 const runtimeState = globalThis as typeof globalThis & { __udsScoutSecurityService?: SecurityRefreshService; __udsScoutSecurityServiceVersion?: number };
 
 export function securityRefreshService() {
