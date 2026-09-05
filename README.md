@@ -11,6 +11,20 @@ UDS Scout is a local-first engineering console for actionable operational visibi
 
 See [CHANGELOG.md](CHANGELOG.md) for released and upcoming user-facing changes.
 
+## See UDS Scout in action
+
+These screenshots use the current live repository data in the local Scout workspace and show the light theme.
+
+| Overview | Infrastructure Explorer |
+| --- | --- |
+| [![UDS Scout overview](public/screenshots/overview.png)](public/screenshots/overview.png) | [![Infrastructure Explorer](public/screenshots/infrastructure.png)](public/screenshots/infrastructure.png) |
+
+| Security intelligence | UDS Packages catalog |
+| --- | --- |
+| [![Security intelligence](public/screenshots/security.png)](public/screenshots/security.png) | [![UDS Packages catalog](public/screenshots/packages.png)](public/screenshots/packages.png) |
+
+[View the repository detail screenshot](public/screenshots/repository-jenkins.png)
+
 The current release uses GitHub as the primary repository dashboard. GitLab is an optional integration for assigned work items and explicitly confirmed ticket creation; a separate full GitLab operations dashboard is planned rather than mixing providers into one view.
 
 ## Supporting UDS package maintainers
