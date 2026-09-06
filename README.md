@@ -33,7 +33,7 @@ These screenshots use current repository data from a local Scout workspace and s
 2. Scout collects their current operational state.
 3. **My work today** prioritizes reviews, blockers, failed checks, dependency updates, and assigned work.
 4. Each selected repository includes operational, dependency, version-alignment, and security context; coverage is explicit when evidence is unavailable.
-5. Follow the source links to GitHub, GitLab, a registry, or another underlying system for detailed investigation or action.
+5. Follow the source links to GitHub, a registry, or another underlying system for detailed investigation or action.
 
 For example, a Renovate pull request with failed checks or a conflict is surfaced ahead of a routine update. The routine update remains visible, but it does not compete with work that currently needs intervention.
 
@@ -90,23 +90,12 @@ Renovate updates are authored by Renovate and identified from their `renovate/*`
 
 The UDS Packages catalog provides a searchable, sortable, paginated view of the configured package repositories and contributor totals. It is a discovery and status surface, not a replacement for repository work in GitHub.
 
-## GitLab’s current role
-
-GitHub is Scout’s primary repository-operations provider. GitLab is optional and currently provides:
-
-- Assigned work-item visibility from explicitly selected projects
-- Links to the corresponding GitLab work-item board
-- A staged ticket composer for up to 20 issues at a time
-
-GitLab ticket creation requires a complete review and explicit confirmation. Scout revalidates the selected project, Developer access, and labels before submission, reports each result, and does not retry automatically. GitLab is not yet a second full repository dashboard.
-
 ## Safety and data boundaries
 
 - Scout monitors only repositories explicitly selected in the workspace; it does not expand to every repository visible to the token.
 - Scout runs locally. It does not require a hosted Scout service, database, worker, or external Scout backend.
 - Credentials are read by server-side Next.js code and are never returned to browser code or API responses.
 - GitHub is read-only except for an explicitly confirmed re-run of a selected failed job or workflow.
-- GitLab writes are limited to the staged, reviewed, explicitly confirmed ticket workflow.
 - Scout does not silently mutate repositories.
 - Setup credentials remain in the running server process; environment credentials remain outside persisted Scout settings.
 - Only documented non-secret workspace preferences and local security cache data are persisted.
@@ -122,7 +111,6 @@ GitLab ticket creation requires a complete review and explicit confirmation. Sco
 - A GitHub token with read access to the repositories you intend to select
 - Organization authorization when a selected repository enforces SSO
 - Optional Actions write permission if Scout should re-run selected failed jobs or workflows
-- Optional GitLab token for selected-project work items and ticket creation
 - Optional [Task](https://taskfile.dev/) (`brew install go-task` on macOS)
 
 ### Start with npm
@@ -140,8 +128,7 @@ On first boot:
 
 1. Connect or confirm the GitHub token.
 2. Select the GitHub repositories Scout should monitor.
-3. Optionally connect GitLab and select projects for assigned work.
-4. Save the workspace and continue to the dashboard.
+3. Save the workspace and continue to the dashboard.
 
 Credentials are validated by the server. Non-secret selections are stored with local-user permissions at `~/.config/uds-scout/settings.json`. Existing `~/.config/d2d-operations/settings.json` settings continue to load when the new path does not yet exist.
 
@@ -154,8 +141,6 @@ Repository quick-select groups are defined in [`config/repository-groups.json`](
 | `GITHUB_TOKEN` | Yes, unless entered during setup | Server-only GitHub API token |
 | `GH_TOKEN` | No | Fallback GitHub token name |
 | `NVD_API_KEY` | No | Optional server-only NVD API key for faster advisory refreshes |
-| `GITLAB_TOKEN` | No | Server-only GitLab API token |
-| `GITLAB_URL` | No | GitLab origin; defaults to the configured internal GitLab host |
 | `GITHUB_REPOSITORIES` | No | Comma-separated repository override |
 | `UDS_SCOUT_SETTINGS_PATH` | No | Alternate non-secret settings path |
 | `UDS_SCOUT_SECURITY_PATH` | No | Alternate local security-cache path |

@@ -10,7 +10,6 @@ import {
   RawRun,
 } from "@/lib/github";
 import { loadRepositoryOperations, type RecentMergedPull } from "@/lib/github-operations";
-import { gitlabRequest, gitlabTokenStatus, type GitlabViewer } from "@/lib/gitlab";
 import { readLocalSettings } from "@/lib/local-settings";
 import { SONIC_REPOSITORY, TEST_LAB_ENABLED, TEST_LAB_REPOSITORIES } from "@/lib/repository-constants";
 import { DEFAULT_RENOVATE_REVIEW_DAY } from "@/lib/renovate-review";
@@ -210,7 +209,6 @@ export async function GET() {
     const viewer = await githubRequest<Viewer>("/user", 5 * 60_000);
     const tracked = trackedRepositories();
     const localSettings = readLocalSettings(viewer.login);
-    const gitlabConfigured = localSettings?.gitlabEnabled !== false && gitlabTokenStatus().configured && Boolean(await gitlabRequest<GitlabViewer>("/user", 5 * 60_000).catch(() => null));
     const trackedNames = new Set(tracked.map((repository) => repository.toLowerCase()));
     const hasSonic = trackedNames.has(SONIC_REPOSITORY.toLowerCase());
     const hasTestLabRepository = TEST_LAB_ENABLED && TEST_LAB_REPOSITORIES.some((repository) => trackedNames.has(repository.toLowerCase()));
@@ -348,7 +346,7 @@ export async function GET() {
     return NextResponse.json({
       viewer: { login: viewer.login, name: viewer.name, avatar: viewer.avatar_url, url: viewer.html_url },
       preferences: { renovateReviewDay: localSettings?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY },
-      capabilities: { sonic: hasSonic, testLab: hasTestLabRepository, gitlab: gitlabConfigured && Boolean(localSettings?.gitlabProjects.length), gitlabTickets: gitlabConfigured },
+      capabilities: { sonic: hasSonic, testLab: hasTestLabRepository, gitlab: false, gitlabTickets: false },
       metrics: {
         repositories: repositories.length,
         private: repositories.filter((repo) => repo.private).length,

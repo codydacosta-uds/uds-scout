@@ -8,6 +8,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 - Removed the SONIC maintenance-window countdown from the global navigation.
 - Clarified My work today counts, next actions, repository names, and dashboard copy; removed the unexplained Slack taco shortcut.
+- Temporarily removed GitLab from the Scout user experience so the GitHub repository-operations workflow remains focused.
 
 ### Added
 

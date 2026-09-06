@@ -37,6 +37,8 @@ const renovateReviewScheduleOptions = [
   RENOVATE_REVIEW_DAYS[0],
 ].map((day) => ({ label: `${day.charAt(0).toUpperCase()}${day.slice(1)}`, value: day as RenovateReviewDay })).concat({ label: "Do not show", value: "hidden" });
 
+const GITLAB_FEATURE_ENABLED = false;
+
 function SetupLoading() {
   return <div className="setup-status-pending" role="status" aria-label="Checking Scout workspace" aria-busy="true" />;
 }
@@ -57,7 +59,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [connectedViewer, setConnectedViewer] = useState<SetupViewer | null>(status.viewer);
   const [token, setToken] = useState("");
   const [gitlabToken, setGitlabToken] = useState("");
-  const [gitlabTokenReady, setGitlabTokenReady] = useState(status.gitlab.hasToken);
+  const [gitlabTokenReady, setGitlabTokenReady] = useState(GITLAB_FEATURE_ENABLED && status.gitlab.hasToken);
   const [gitlabTokenSource, setGitlabTokenSource] = useState(status.gitlab.tokenSource);
   const [connectedGitlabViewer, setConnectedGitlabViewer] = useState<SetupGitlabViewer | null>(status.gitlab.viewer);
   const [gitlabProjects, setGitlabProjects] = useState<SetupGitlabProject[]>([]);
@@ -66,7 +68,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [renovateReviewDay, setRenovateReviewDay] = useState<RenovateReviewDay>(status.renovateReviewDay);
   const [renovateReviewSaving, setRenovateReviewSaving] = useState(false);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
-  const [gitlabProjectsLoading, setGitlabProjectsLoading] = useState(status.gitlab.hasToken);
+  const [gitlabProjectsLoading, setGitlabProjectsLoading] = useState(false);
   const [gitlabProjectsLoaded, setGitlabProjectsLoaded] = useState(false);
   const [gitlabConnecting, setGitlabConnecting] = useState(false);
   const [repositories, setRepositories] = useState<SetupRepository[]>([]);
@@ -91,7 +93,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [presetSaving, setPresetSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const repositoriesLocked = status.repositorySource === "environment";
-  const setupStepCount = gitlabTokenReady ? 3 : 2;
+  const setupStepCount = 2;
   useEffect(() => {
     if (step !== "repositories" || repositoriesLoaded) return;
     const controller = new AbortController();
@@ -577,6 +579,8 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
     </Container>
   );
 
+  void gitlabConnection;
+
   const gitlabProjectSettings = gitlabTokenReady ? (
     <Container header={<Header variant="h2" description={step === "gitlab-projects" ? "Step 3 of 3 · Choose zero or more projects for assigned work items." : "Choose zero or more projects for assigned work items. Ticket batches can target one selected, validated project at a time."} actions={step === "gitlab-projects" ? <SpaceBetween direction="horizontal" size="s"><Button onClick={() => setStep("repositories")}>Back</Button><SaveButton loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save and continue</SaveButton></SpaceBetween> : settingsMode ? <SaveButton loading={loading} disabled={!gitlabProjectsLoaded} onClick={save}>Save changes</SaveButton> : undefined}>{step === "gitlab-projects" ? "Choose Gitlab projects" : "Gitlab projects"}</Header>}>
       <SpaceBetween size="m">
@@ -691,7 +695,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
         <SpaceBetween size="l">
           <SpaceBetween size="xs">
             <Box variant="awsui-key-label">{settingsMode ? "WORKSPACE CONFIGURATION" : "INITIAL SETUP"}</Box>
-            <Header variant="h1" description={settingsMode ? "Manage workspace connections, repositories, and project settings." : step === "token" ? `Step 1 of ${setupStepCount} · Connect GitHub and optional services.` : step === "repositories" ? `Step 2 of ${setupStepCount} · Choose the GitHub repositories Scout should manage.` : "Step 3 of 3 · Choose the Gitlab projects Scout should include."} actions={settingsMode ? <ButtonDropdown items={[{ id: "run-setup", text: "Run setup again" }]} onItemClick={() => setRerunSetupConfirmVisible(true)}>Actions</ButtonDropdown> : replayMode && status.configured ? <Button onClick={() => setResetConfirmVisible(true)}>Reset setup</Button> : undefined}>
+            <Header variant="h1" description={settingsMode ? "Manage workspace connections, repositories, and project settings." : step === "token" ? `Step 1 of ${setupStepCount} · Connect GitHub and optional services.` : step === "repositories" ? `Step 2 of ${setupStepCount} · Choose the GitHub repositories Scout should manage.` : "Choose the GitHub repositories Scout should manage."} actions={settingsMode ? <ButtonDropdown items={[{ id: "run-setup", text: "Run setup again" }]} onItemClick={() => setRerunSetupConfirmVisible(true)}>Actions</ButtonDropdown> : replayMode && status.configured ? <Button onClick={() => setResetConfirmVisible(true)}>Reset setup</Button> : undefined}>
               {settingsMode ? "Workspace settings" : "Set up your workspace"}
             </Header>
           </SpaceBetween>
@@ -717,7 +721,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
           {step === "token" ? (
             <SpaceBetween size="l">
             {githubConnection}
-            {gitlabConnection}
             <div className="setup-step-actions">
               <PrimaryActionButton disabled={!tokenReady} onClick={continueToRepositories}>Continue to GitHub repositories</PrimaryActionButton>
             </div>
@@ -735,7 +738,6 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                   { id: "workspace", label: "Workspace" },
                   { id: "connections", label: "Connections" },
                   { id: "github", label: "GitHub repositories" },
-                  { id: "gitlab", label: "Gitlab projects" },
                 ]}
               />
               {settingsTab === "workspace" ? (
@@ -744,8 +746,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                     <SpaceBetween size="l">
                       <SpaceBetween size="xs"><Box variant="h3">GitHub repositories</Box><Box color="text-body-secondary">{selectedNames.size} repositories are managed by Scout.</Box><div><Button onClick={() => setSettingsTab("github")}>Manage GitHub repositories</Button></div></SpaceBetween>
                       <SpaceBetween size="xs"><Box variant="h3">Quick select groups</Box><Box color="text-body-secondary">{workspacePresets.length} {workspacePresets.length === 1 ? "group is" : "groups are"} available for repository selection.</Box><div><Button disabled={repositoriesLoading} onClick={() => setPresetManagerVisible(true)}>Manage quick select groups</Button></div></SpaceBetween>
-                      <SpaceBetween size="xs"><Box variant="h3">Gitlab projects</Box><Box color="text-body-secondary">{gitlabTokenReady ? `${selectedGitlabProjects.size} projects are selected for Gitlab work items.` : "Gitlab is not connected."}</Box><div><Button onClick={() => setSettingsTab(gitlabTokenReady ? "gitlab" : "connections")}>{gitlabTokenReady ? "Manage Gitlab projects" : "Connect Gitlab"}</Button></div></SpaceBetween>
-                      <SpaceBetween size="xs"><Box variant="h3">Connections</Box><Box color="text-body-secondary">Manage server-only GitHub and Gitlab credentials.</Box><div><Button onClick={() => setSettingsTab("connections")}>Manage connections</Button></div></SpaceBetween>
+                      <SpaceBetween size="xs"><Box variant="h3">Connections</Box><Box color="text-body-secondary">Manage the server-only GitHub credential.</Box><div><Button onClick={() => setSettingsTab("connections")}>Manage connections</Button></div></SpaceBetween>
                     </SpaceBetween>
                   </Container>
                   <Container header={<Header variant="h2" description="Choose one browser-local weekday, or hide the scheduled table." actions={<SaveButton loading={renovateReviewSaving} disabled={renovateReviewDay === status.renovateReviewDay} onClick={saveRenovateReviewSchedule}>Save schedule</SaveButton>}>Renovate review</Header>}>
@@ -755,7 +756,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                   </Container>
                 </SpaceBetween>
               ) : null}
-              {settingsTab === "connections" ? <SpaceBetween size="l">{githubConnection}{gitlabConnection}</SpaceBetween> : null}
+              {settingsTab === "connections" ? <SpaceBetween size="l">{githubConnection}</SpaceBetween> : null}
               {settingsTab === "gitlab" ? (gitlabProjectSettings ?? <Container header={<Header variant="h2">Gitlab projects</Header>}><SpaceBetween size="m"><Box color="text-body-secondary">Connect Gitlab before choosing projects for work items and ticket creation.</Box><div><Button onClick={() => setSettingsTab("connections")}>Open connections</Button></div></SpaceBetween></Container>) : null}
               {settingsTab === "github" ? <SpaceBetween size="l">
               <Table
@@ -833,7 +834,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
                   variant="h2"
                   counter={selectionCounter}
                   description={repositoriesLocked ? `Step 2 of ${setupStepCount} · GitHub repository selection is controlled by GITHUB_REPOSITORIES.` : `Step 2 of ${setupStepCount} · Choose up to ${MAX_MANAGED_REPOSITORIES} GitHub repositories for pull requests, issues, pipelines, and repository health.`}
-                  actions={<SpaceBetween direction="horizontal" size="s">{quickSelect}<Button onClick={() => { setQuickSelectUndo(null); setStep("token"); }}>Back</Button><PrimaryActionButton loading={!gitlabTokenReady && loading} disabled={repositoriesLoading} onClick={gitlabTokenReady ? () => setStep("gitlab-projects") : save}>{gitlabTokenReady ? "Continue to Gitlab projects" : "Save and continue"}</PrimaryActionButton></SpaceBetween>}
+                  actions={<SpaceBetween direction="horizontal" size="s">{quickSelect}<Button onClick={() => { setQuickSelectUndo(null); setStep("token"); }}>Back</Button><PrimaryActionButton loading={loading} disabled={repositoriesLoading} onClick={save}>Save and continue</PrimaryActionButton></SpaceBetween>}
                 >
                   Choose GitHub repositories
                 </Header>
