@@ -427,7 +427,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "security" ? "/security" : view === "gitlab-tickets" ? "/gitlab/tickets" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : `/repositories/${repositoryName ?? ""}`;
   const repositoryItems = (overview?.repositories ?? []).map((repository) => ({
     type: "link" as const,
-    text: repository.name,
+    text: repository.fullName,
     href: `/repositories/${repository.fullName}`,
     info: repository.attention.level === "action-required" ? <Badge color={pipelineFailed(repository.pipeline?.conclusion) ? "red" : "severity-medium"}>Action</Badge> : repository.udsCommon?.status === "outdated" ? <span className="repository-common-update-indicator" title="UDS Common update available" aria-label="UDS Common update available" /> : undefined,
   }));
@@ -621,18 +621,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         duration={loading ? 60_000 : 5_000}
       /> : null}
       {personalWorkConfirmation ? <ActionSuccessToast confirmation={{ ...personalWorkConfirmation, content: personalWorkUndo ? <Button variant="inline-link" onClick={undoPersonalWorkChange}>Undo</Button> : personalWorkConfirmation.content }} onDismiss={() => { setPersonalWorkConfirmation(null); setPersonalWorkUndo(null); }} /> : null}
-      {!detailsOpen && !helpOpen ? (
-        <a
-          className="slack-taco"
-          href="https://grid-defense-unicorns.enterprise.slack.com/archives/C03RN5MH3KQ"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Give a taco in Slack"
-          title="Give a taco"
-        >
-          🌮
-        </a>
-      ) : null}
     </>
   );
 }

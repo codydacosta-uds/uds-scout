@@ -296,8 +296,8 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
   } else if (assignedToViewer) {
     state = "waiting-on-me";
     progress = approvals.length ? "partially-approved" : "waiting-reviewer";
-    label = "Assigned to you";
-    reason = `This pull request is assigned to ${viewer}.`;
+    label = "Your action needed";
+    reason = `You are assigned to this pull request as the current owner.`;
   } else if (authoredByViewer) {
     state = "waiting-on-others";
     progress = approvals.length ? "partially-approved" : "no-approvals";

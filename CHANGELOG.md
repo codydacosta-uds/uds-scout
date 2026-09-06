@@ -7,6 +7,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 ### Changed
 
 - Removed the SONIC maintenance-window countdown from the global navigation.
+- Clarified My work today counts, next actions, repository names, and dashboard copy; removed the unexplained Slack taco shortcut.
 
 ### Added
 

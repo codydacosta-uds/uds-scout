@@ -165,7 +165,7 @@ function myWorkWaitingOn(pull: MyWorkPull) {
   }
   if (pull.workflow.checks.failing || pull.workflow.checks.pending) return { label: "Required checks", detail: "Required checks" };
   if (pull.workflow.progress === "merge-conflict") return { label: "Source branch update", detail: "Source branch update" };
-  if (pull.workflow.state === "ready-to-merge") return { label: "Merge decision", detail: "Merge decision" };
+  if (pull.workflow.state === "ready-to-merge") return { label: "Your merge decision", detail: "Your merge decision" };
   return null;
 }
 
@@ -523,7 +523,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
   const selectedCurrentMyWork = visibleWorkItems.filter((item) => selectedMyWorkKeys.has(item.key));
   const selectedMyWorkSort = MY_WORK_SORT_OPTIONS.find((option) => option.value === myWorkSort) ?? MY_WORK_SORT_OPTIONS[0];
   const selectedMyWorkView = MY_WORK_VIEW_OPTIONS.find((option) => option.value === myWorkView) ?? MY_WORK_VIEW_OPTIONS[0];
-  const myWorkCount = workQueue.length + overview.myWork.assignedIssues.length;
+  const myWorkCount = workQueue.length;
   const currentMyWorkFingerprints = JSON.stringify(recommendedWorkItems.map((pull) => [myWorkItemKey(pull), myWorkItemFingerprint(pull)]));
 
   useEffect(() => {
@@ -633,7 +633,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
       header={
         <Header
           variant="h1"
-          description="Scout tells you what matters across all your repositories. GitHub only tells you what's happening inside one. Go Fight Win!"
+          description="Review the work, failures, and updates that need your attention across selected repositories."
           actions={<SpaceBetween direction="horizontal" size="s"><DataFreshness generatedAt={overview.generatedAt} refreshing={refreshing} stale={Boolean(refreshError)} />{customizeCardsOpen ? <PrimaryActionButton iconName="check" onClick={() => setCustomizeCardsOpen(false)}>Done</PrimaryActionButton> : <Button iconName="drag-indicator" onClick={() => setCustomizeCardsOpen(true)}>Customize cards</Button>}<Button iconName="refresh" variant="icon" ariaLabel="Refresh data" loading={refreshing} onClick={refresh} /></SpaceBetween>}
         >
           {greeting}, {viewerFirstName(overview.viewer)}!
@@ -660,7 +660,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
           selectedItems={selectedCurrentMyWork}
           onSelectionChange={({ detail }) => setSelectedMyWork([...detail.selectedItems])}
           ariaLabels={{ selectionGroupLabel: "Select work items", itemSelectionLabel: ({ selectedItems }, item) => `${selectedItems.includes(item) ? "Deselect" : "Select"} ${item.title}` }}
-          header={<Header variant="h2" info={<PanelInfo header="My work today">This browser-local personal queue combines Scout recommendations with pull requests, issues, workflows, and security findings you add from other views. Select one or more items to remove them or add a private follow-up note. Scout recommendations can return when their actionable state changes; closed pull requests, closed issues, resolved findings, and unavailable old workflow runs leave the queue when Scout confirms their state.</PanelInfo>} actions={<button type="button" className={`renovate-review-beacon${showWeeklyRenovateReview ? "" : " renovate-review-beacon-inactive"}`} aria-label={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} title={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} onClick={showWeeklyRenovateReview ? jumpToRenovateReview : () => setRenovateReviewVisibleForToday(true, true)} />}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
+          header={<Header variant="h2" description={`Showing ${visibleWorkItems.length} of ${myWorkCount} work items${myWorkView === "all" ? "" : ` · ${selectedMyWorkView.label}`}.`} info={<PanelInfo header="My work today">This browser-local personal queue combines Scout recommendations with pull requests, issues, workflows, and security findings you add from other views. Select one or more items to remove them or add a private follow-up note. Scout recommendations can return when their actionable state changes; closed pull requests, closed issues, resolved findings, and unavailable old workflow runs leave the queue when Scout confirms their state.</PanelInfo>} actions={<button type="button" className={`renovate-review-beacon${showWeeklyRenovateReview ? "" : " renovate-review-beacon-inactive"}`} aria-label={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} title={showWeeklyRenovateReview ? "Jump to Renovate review" : "Show Renovate review for today"} onClick={showWeeklyRenovateReview ? jumpToRenovateReview : () => setRenovateReviewVisibleForToday(true, true)} />}><span className="section-heading section-heading-my-work">My work today <span className="section-heading-count">({myWorkCount})</span></span></Header>}
           filter={<div className="my-work-toolbar"><div className="my-work-filters"><div className="my-work-sort"><Select ariaLabel="Filter My work today" selectedOption={selectedMyWorkView} options={MY_WORK_VIEW_OPTIONS} onChange={({ detail }) => { setMyWorkView(detail.selectedOption.value as MyWorkView); setSelectedMyWork([]); }} /></div><div className="my-work-sort"><Select ariaLabel="Sort My work today" selectedOption={selectedMyWorkSort} options={MY_WORK_SORT_OPTIONS} onChange={({ detail }) => updateMyWorkSort(detail.selectedOption.value as MyWorkSort)} /></div></div><div className="my-work-toolbar-actions">{selectedCurrentMyWork.length === 1 ? <Button onClick={() => editSelectedMyWorkNote(selectedCurrentMyWork[0])}>{selectedCurrentMyWork[0].note ? "Edit note" : "Add note"}</Button> : null}{selectedCurrentMyWork.length ? <Button onClick={() => removeSelectedMyWork(selectedCurrentMyWork)}>{`Remove selected (${selectedCurrentMyWork.length})`}</Button> : null}{hiddenWorkItems.length ? <Button onClick={() => setHiddenMyWorkOpen(true)}>{hiddenWorkItems.length} hidden</Button> : null}{overview.myWork.assignedIssues.length ? <Button onClick={() => openDrawer({ type: "my-work", queue: "assigned-issues" })}>{overview.myWork.assignedIssues.length} assigned {overview.myWork.assignedIssues.length === 1 ? "issue" : "issues"}</Button> : null}</div></div>}
           items={visibleWorkItems}
           columnDefinitions={[

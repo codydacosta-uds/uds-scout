@@ -133,35 +133,6 @@ body.awsui-dark-mode [class*="awsui_flash-type-warning_"] [class*="awsui_flash-i
   z-index: 1001;
 }
 
-.slack-taco {
-  position: fixed;
-  right: 20px;
-  bottom: 20px;
-  z-index: 1000;
-  display: flex;
-  width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  background: transparent;
-  color: inherit;
-  font-size: 23px;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.slack-taco:hover {
-  border-color: var(--d2d-color-warning);
-  background: var(--d2d-color-warning-surface);
-}
-
-.slack-taco:focus-visible {
-  outline: 2px solid var(--d2d-color-warning);
-  outline-offset: 2px;
-}
-
 .setup-shell {
   width: min(1120px, calc(100% - 48px));
   margin: 0 auto;
@@ -1602,11 +1573,6 @@ div[class*="awsui_drawers-mobile-triggers-container_"] {
 }
 
 @media (max-width: 700px) {
-  .slack-taco {
-    right: 12px;
-    bottom: 12px;
-  }
-
   .setup-shell {
     width: calc(100% - 32px);
     padding: 28px 0 48px;
