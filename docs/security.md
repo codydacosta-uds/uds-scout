@@ -1,6 +1,6 @@
 # Repository security context
 
-UDS Scout treats security as part of repository health. For eligible selected package repositories, the server progressively gathers public evidence and attaches the resulting context to the repository workspace and operational views.
+UDS Scout treats security as part of repository health. For every selected repository, the server progressively gathers the public evidence that applies and attaches the resulting context to the repository workspace and operational views. Repositories without recognizable package evidence are reported as not applicable or unavailable rather than silently omitted.
 
 ## Coverage states
 
