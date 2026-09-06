@@ -328,14 +328,6 @@ body.awsui-dark-mode .setup-repository-loading-banner * {
   overflow-wrap: anywhere;
 }
 
-.sonic-maintenance-name {
-  color: var(--d2d-color-warning) !important;
-}
-
-#top-navigation a:hover .sonic-maintenance-name {
-  color: var(--d2d-color-warning-hover) !important;
-}
-
 .data-freshness {
   display: inline-flex;
   min-width: 126px;

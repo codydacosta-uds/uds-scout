@@ -553,7 +553,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     <>
       <div id="top-navigation">
         <ConsoleTopNavigation
-          showCountdown={overview?.capabilities.sonic ?? false}
           viewer={overview?.viewer}
           onHome={() => router.push("/")}
           onHelp={() => { setDetailsOpen(false); setHelpOpen(true); }}
@@ -697,7 +696,7 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
 
         <ExpandableSection headerText="Feature guide">
         <h4>Work queues</h4>
-        <p>The top navigation keeps a local-time countdown for the next SONIC maintenance window visible across all pages. It is anchored to Tuesday, August 11, 2026 at 5:00 PM and repeated every 14 days; it remains active until 11:59 PM. Pull request, Renovate, issue, pipeline, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
+        <p>Pull request, Renovate, issue, pipeline, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
         <h4>Repository health and versions</h4>
         <p>Repository pages combine current work with latest pipeline health. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
         <h4>Infrastructure knowledge</h4>
@@ -736,41 +735,6 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
   );
 }
 
-const TUESDAY_COUNTDOWN_ANCHOR = new Date(2026, 7, 11, 17, 0, 0, 0);
-
-function shiftLocalDays(date: Date, days: number) {
-  const shifted = new Date(date);
-  shifted.setDate(shifted.getDate() + days);
-  return shifted;
-}
-
-function tuesdayWindow(now: Date) {
-  if (now < TUESDAY_COUNTDOWN_ANCHOR) {
-    return { target: new Date(TUESDAY_COUNTDOWN_ANCHOR), active: false };
-  }
-
-  const interval = 14 * 24 * 60 * 60 * 1000;
-  const cycle = Math.max(0, Math.floor((now.getTime() - TUESDAY_COUNTDOWN_ANCHOR.getTime()) / interval));
-  let target = shiftLocalDays(TUESDAY_COUNTDOWN_ANCHOR, cycle * 14);
-  while (now < target) target = shiftLocalDays(target, -14);
-  while (now >= shiftLocalDays(target, 14)) target = shiftLocalDays(target, 14);
-
-  const windowEnd = new Date(target);
-  windowEnd.setHours(23, 59, 0, 0);
-  if (now >= target && now < windowEnd) return { target, active: true };
-  if (now >= windowEnd) target = shiftLocalDays(target, 14);
-  return { target, active: false };
-}
-
-function countdownText(milliseconds: number) {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  const days = Math.floor(seconds / 86_400);
-  const hours = Math.floor((seconds % 86_400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = seconds % 60;
-  return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(remainingSeconds).padStart(2, "0")}s`;
-}
-
 const US_TIME_ZONES = [
   { id: "eastern", label: "Eastern Time", timeZone: "America/New_York", color: "#3b82b6" },
   { id: "central", label: "Central Time", timeZone: "America/Chicago", color: "#2f7f8f" },
@@ -783,8 +747,7 @@ function usTime(now: Date | null, timeZone: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(now);
 }
 
-function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp, lightMode, onToggleTheme }: {
-  showCountdown: boolean;
+function ConsoleTopNavigation({ viewer, onHome, onHelp, lightMode, onToggleTheme }: {
   viewer?: Overview["viewer"];
   onHome: () => void;
   onHelp: () => void;
@@ -801,7 +764,7 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp, lightMode
         timer = null;
       }
       update();
-      if (document.visibilityState === "visible") timer = window.setInterval(update, showCountdown ? 1_000 : 30_000);
+      if (document.visibilityState === "visible") timer = window.setInterval(update, 30_000);
     };
     syncTimer();
     document.addEventListener("visibilitychange", syncTimer);
@@ -809,32 +772,12 @@ function ConsoleTopNavigation({ showCountdown, viewer, onHome, onHelp, lightMode
       if (timer !== null) window.clearInterval(timer);
       document.removeEventListener("visibilitychange", syncTimer);
     };
-  }, [showCountdown]);
-
-  const schedule = now ? tuesdayWindow(now) : null;
-  const countdown = schedule && now ? countdownText(schedule.target.getTime() - now.getTime()) : "Tuesday countdown";
-  const targetText = schedule?.target.toLocaleString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-  const countdownLabel = schedule?.active
-    ? "SONIC maintenance window active until 11:59 PM"
-    : targetText ? `Next SONIC maintenance window in ${countdown}, at ${targetText}` : "Calculating the next SONIC maintenance window";
-  const countdownUtilityText = schedule?.active
-    ? <span><span className="sonic-maintenance-name">SONIC</span> maintenance window active</span>
-    : <span>Next <span className="sonic-maintenance-name">SONIC</span> maintenance window: {countdown}</span>;
-
-  useEffect(() => {
-    if (!showCountdown || !targetText) return;
-    const frame = window.requestAnimationFrame(() => {
-      const utility = document.querySelector<HTMLElement>('#top-navigation a[aria-label*="SONIC maintenance window"]');
-      utility?.setAttribute("title", schedule?.active ? `${targetText} through 11:59 PM` : targetText);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [schedule?.active, showCountdown, targetText]);
+  }, []);
 
   return (
     <TopNavigation
       identity={{ href: "/", title: "UDS Scout", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); onHome(); } }}
       utilities={[
-        ...(showCountdown ? [{ type: "button" as const, text: countdownUtilityText as unknown as string, iconName: "calendar" as const, ariaLabel: countdownLabel }] : []),
         { type: "menu-dropdown", text: "US time", title: "US time zones", description: "Current local time with daylight saving adjustments.", iconSvg: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="#3b82b6" strokeWidth="1.7" /><path d="M8 4.5v3.8l2.6 1.5" fill="none" stroke="#3b82b6" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>, ariaLabel: "View United States time zones", items: US_TIME_ZONES.map((zone) => ({ id: zone.id, text: zone.label, secondaryText: usTime(now, zone.timeZone), iconSvg: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill={zone.color} /></svg> })) },
         { type: "button", iconUrl: "/github-mark.svg", iconAlt: "GitHub", ariaLabel: "Open UDS Scout repository on GitHub", href: UDS_SCOUT_REPOSITORY_URL, target: "_blank", rel: "noopener noreferrer", disableUtilityCollapse: true },
         { type: "button", iconSvg: <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r={lightMode ? "3" : "3.5"} fill={lightMode ? "none" : "currentColor"} stroke="currentColor" strokeWidth="1.4" />{lightMode ? <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /> : <path d="M10.8 3.3a4.7 4.7 0 1 0 1.9 8.8A5.1 5.1 0 0 1 10.8 3.3Z" fill="currentColor" />}</svg>, ariaLabel: lightMode ? "Switch to dark mode" : "Switch to light mode", onClick: onToggleTheme, disableUtilityCollapse: true },

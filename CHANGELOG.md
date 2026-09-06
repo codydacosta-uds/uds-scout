@@ -4,6 +4,10 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the SONIC maintenance-window countdown from the global navigation.
+
 ### Added
 
 - Added a server-side Security monitor that starts with Scout, checks configured repositories without requiring a browser Security page to be open, and refreshes advisory data every 15 minutes.
