@@ -9,7 +9,7 @@
 
 **UDS Scout tells UDS package maintainers what needs attention today, why it needs attention, and where to continue the work.**
 
-Scout is a local repository-operations workspace for maintainers who otherwise have to visit multiple GitHub pages and tools to reconstruct pull-request work, failing pipelines, Renovate updates, ownership, version alignment, and repository security context.
+Scout was built to reduce the effort of maintaining UDS packages across multiple repositories. It is a local repository-operations workspace for maintainers who otherwise have to visit multiple GitHub pages and tools to reconstruct pull-request work, failing pipelines, Renovate updates, ownership, version alignment, and repository security context.
 
 Scout collects, normalizes, and prioritizes that information. It does not replace GitHub or the underlying systems: when deeper investigation or a change is needed, Scout links you back to the source system.
 
