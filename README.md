@@ -48,7 +48,7 @@ The daily queue brings together work that may require a decision or handoff:
 - Failed checks and workflows that are unresolved or block an open pull request
 - Renovate updates with failed checks, conflicts, direct requests, or major-version changes
 - Issues assigned to you
-- A **Since yesterday** briefing for recent review, assignment, workflow, recovery, and issue changes
+- A **Changes since yesterday** briefing for recent review, assignment, workflow, recovery, and issue changes
 
 Scout preserves the author, assignees, reviewers, required checks, mergeability, conflicts, and waiting-on context so the reason for each item is visible before you leave the dashboard.
 
@@ -189,6 +189,6 @@ npm run build
 
 Use `npm test` for fast unit tests and `npm run test:e2e` after installing Chromium with `npx playwright install chromium`.
 
-CI also runs production dependency auditing, source/secret/configuration scanning, production image vulnerability and secret scanning, ShellCheck, browser smoke tests, and a private-repository-compatible OpenSSF Scorecard scan. CodeQL and dependency review run when GitHub Advanced Security is enabled.
+CI also runs production dependency auditing, source/secret/configuration scanning, production image vulnerability and secret scanning, ShellCheck, browser smoke tests, and an OpenSSF Scorecard scan. CodeQL and dependency review run when GitHub Advanced Security is enabled.
 
 See [`SECURITY.md`](SECURITY.md) for vulnerability reporting.
