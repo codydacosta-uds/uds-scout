@@ -31,7 +31,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { addReferencesToPersonalWork, EMPTY_PERSONAL_WORK_STATE, isPullInPersonalWork, isReferenceInPersonalWork, personalWorkReferenceForIssue, personalWorkReferenceForWorkflow, personalWorkStorageName, readPersonalWorkState, writePersonalWorkState, type MyWorkIssue, type MyWorkPipeline, type MyWorkPull, type PersonalWorkReference, type PersonalWorkState } from "@/lib/my-work";
 import { isSecurityContextRepository, SONIC_REPOSITORY, UDS_SCOUT_REPOSITORY_URL } from "@/lib/repository-constants";
-import { GitLabTicketComposer } from "./GitLabTicketComposer";
 import { ActionSuccessToast, PrimaryActionButton, type ActionConfirmation } from "./action-ui";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
 import { OperationsDrawer } from "./OperationsDrawer";
@@ -42,7 +41,7 @@ import type { InfrastructureExplorerData } from "./infrastructure-types";
 import type { ConsoleView, DrawerSelection } from "./operations-types";
 import type { RepositorySecurity, SecurityWorkspace } from "./security-types";
 import { EmptyState, MetricCard, newestPulls, pipelineFailed, pullWorkflowStatus, PullAuthor, PullPeople, relativeTime, repositoryHealth, runStatus, udsCommonStatusAction, UdsCoreVersion } from "./operations-ui";
-import type { GitLabWorkItems, OrganizationRepository, Overview, PullRequest, Repository, RepositoryCatalog, RepositoryContributorCounts, RepositoryWorkspace } from "./types";
+import type { OrganizationRepository, Overview, PullRequest, Repository, RepositoryCatalog, RepositoryContributorCounts, RepositoryWorkspace } from "./types";
 
 type Props = {
   view: ConsoleView;
@@ -50,7 +49,6 @@ type Props = {
 };
 
 let cachedOverview: Overview | null = null;
-let cachedGitLabWorkItems: GitLabWorkItems | null = null;
 let cachedRepositoryCatalog: RepositoryCatalog | null = null;
 let cachedRepositoryContributorCounts: RepositoryContributorCounts | null = null;
 let cachedInfrastructure: InfrastructureExplorerData | null = null;
@@ -90,16 +88,9 @@ function useSessionPreference<T>(key: string, fallback: T, validate: (value: unk
 const isString = (value: unknown): value is string => typeof value === "string";
 const isPositiveInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
 
-const PBME_REPOSITORIES = [
-  { name: "uds-core", url: "https://gitlab.sonic.mil/project-blue/defense-unicorns/shipmates/pbme/uds-core" },
-  { name: "terraform-keycloak", url: "https://gitlab.sonic.mil/project-blue/defense-unicorns/shipmates/pbme-atmos/pbme-iac-modules/terraform-keycloak" },
-  { name: "mission-inf", url: "https://gitlab.sonic.mil/project-blue/defense-unicorns/shipmates/pbme/mission-inf" },
-] as const;
-
 export default function OperationsConsole({ view, repository: repositoryName }: Props) {
   const router = useRouter();
   const [overview, setOverview] = useState<Overview | null>(() => cachedOverview);
-  const [gitLabWorkItems, setGitLabWorkItems] = useState<GitLabWorkItems | null>(() => cachedGitLabWorkItems);
   const [repositoryCatalog, setRepositoryCatalog] = useState<RepositoryCatalog | null>(() => cachedRepositoryCatalog);
   const [repositoryContributorCounts, setRepositoryContributorCounts] = useState<RepositoryContributorCounts | null>(() => cachedRepositoryContributorCounts);
   const [workspace, setWorkspace] = useState<RepositoryWorkspace | null>(() => repositoryName ? cachedWorkspaces.get(repositoryName) ?? null : null);
@@ -110,7 +101,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const [securityPollKey, setSecurityPollKey] = useState(0);
   const [securityRefreshRequest, setSecurityRefreshRequest] = useState(0);
   const [loading, setLoading] = useState(!cachedOverview);
-  const [gitLabLoading, setGitLabLoading] = useState(view === "overview" && !cachedGitLabWorkItems);
   const [repositoryCatalogLoading, setRepositoryCatalogLoading] = useState(view === "uds-packages" && !cachedRepositoryCatalog);
   const [repositoryContributorsLoading, setRepositoryContributorsLoading] = useState(view === "uds-packages" && !cachedRepositoryContributorCounts);
   const [workspaceLoading, setWorkspaceLoading] = useState(view === "repository" && !repositoryName ? true : view === "repository" && !cachedWorkspaces.has(repositoryName ?? ""));
@@ -119,7 +109,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   const [error, setError] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
   const [initialLoadWarningVisible, setInitialLoadWarningVisible] = useState(false);
-  const [gitLabError, setGitLabError] = useState<string | null>(null);
   const [repositoryCatalogError, setRepositoryCatalogError] = useState<string | null>(null);
   const [repositoryContributorsError, setRepositoryContributorsError] = useState<string | null>(null);
   const [lightMode, setLightMode] = useState(false);
@@ -242,28 +231,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       controller.abort();
     };
   }, [refreshKey]);
-
-  useEffect(() => {
-    if (view !== "overview" || !overview?.capabilities.gitlab) return;
-    const controller = new AbortController();
-    setGitLabLoading(true);
-    setGitLabError(null);
-    fetch(`/api/gitlab/work-items?refresh=${refreshKey}`, { signal: controller.signal })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "Gitlab work items could not be loaded.");
-        return data as GitLabWorkItems;
-      })
-      .then((data) => {
-        cachedGitLabWorkItems = data;
-        setGitLabWorkItems(data);
-      })
-      .catch((reason) => {
-        if (reason.name !== "AbortError") setGitLabError(reason.message);
-      })
-      .finally(() => setGitLabLoading(false));
-    return () => controller.abort();
-  }, [view, refreshKey, overview?.capabilities.gitlab]);
 
   useEffect(() => {
     if (view !== "uds-packages") return;
@@ -424,7 +391,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     };
   }, []);
 
-  const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "security" ? "/security" : view === "gitlab-tickets" ? "/gitlab/tickets" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : `/repositories/${repositoryName ?? ""}`;
+  const activeHref = view === "overview" ? "/" : view === "pull-requests" ? "/pull-requests" : view === "renovate" ? "/renovate" : view === "security" ? "/security" : view === "uds-packages" ? "/uds-packages" : view === "infrastructure" ? "/infrastructure" : `/repositories/${repositoryName ?? ""}`;
   const repositoryItems = (overview?.repositories ?? []).map((repository) => ({
     type: "link" as const,
     text: repository.fullName,
@@ -458,25 +425,8 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
           defaultExpanded: true,
           items: [{ type: "link" as const, text: "Infrastructure Explorer", href: "/infrastructure", icon: <Icon name="share" /> }],
         }] : []),
-        ...(overview?.capabilities.gitlabTickets ? [{ type: "link" as const, text: "Create Gitlab tickets", href: "/gitlab/tickets", icon: <Icon name="add-plus" /> }] : []),
         { type: "divider" },
         { type: "section", text: "Tracked repositories", defaultExpanded: true, items: repositoryItems },
-        ...(overview?.capabilities.sonic ? [
-          { type: "divider" as const },
-          {
-            type: "section" as const,
-            text: "External workspaces",
-            defaultExpanded: false,
-            items: PBME_REPOSITORIES.map((repository) => ({
-              type: "link" as const,
-              text: repository.name,
-              href: repository.url,
-              external: true,
-              externalIconAriaLabel: "Opens in a new tab",
-              icon: <Icon name="folder" />,
-            })),
-          },
-        ] : []),
         { type: "divider" },
         { type: "link", text: "UDS Packages catalog", href: "/uds-packages", icon: <Icon name="folder" />, info: repositoryCatalog?.metrics.total ? <Badge color="grey">{repositoryCatalog.metrics.total}</Badge> : undefined },
         { type: "link", text: "Workspace settings", href: "/settings", icon: <Icon name="settings" /> },
@@ -517,17 +467,13 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
   } else if (!overview) {
     content = <EmptyState title="Operational data is unavailable" detail="Confirm the GitHub token is available and try again." />;
   } else if (view === "overview") {
-    content = <OverviewPage overview={overview} securityWorkspace={securityWorkspace} personalWorkState={personalWorkState} onPersonalWorkStateChange={persistPersonalWorkState} refreshing={loading} refreshError={error} gitLabWorkItems={gitLabWorkItems} gitLabLoading={gitLabLoading} gitLabError={gitLabError} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
+    content = <OverviewPage overview={overview} securityWorkspace={securityWorkspace} personalWorkState={personalWorkState} onPersonalWorkStateChange={persistPersonalWorkState} refreshing={loading} refreshError={error} repositoryCatalog={repositoryCatalog} repositoryCatalogLoading={repositoryCatalogLoading} repositoryCatalogError={repositoryCatalogError} refresh={() => setRefreshKey((value) => value + 1)} openDrawer={openDrawer} navigate={(href) => router.push(href)} />;
   } else if (view === "pull-requests") {
     content = <PullRequestsPage overview={overview} personalWorkState={personalWorkState} onAddToMyWork={addPullsToMyWork} openDrawer={openDrawer} />;
   } else if (view === "renovate") {
     content = <RenovatePage overview={overview} openDrawer={openDrawer} />;
   } else if (view === "security") {
     content = <GlobalSecurityPage workspace={securityWorkspace} overview={overview} loading={securityLoading} refresh={() => setSecurityRefreshRequest(1)} navigate={(href) => router.push(href)} />;
-  } else if (view === "gitlab-tickets") {
-    content = overview.capabilities.gitlabTickets
-      ? <GitLabTicketComposer />
-      : <EmptyState title="Gitlab ticket creation is unavailable" detail="Configure the Gitlab integration before creating tickets." />;
   } else if (view === "uds-packages") {
     content = <UdsPackagesCatalogPage overview={overview} catalog={repositoryCatalog} contributorCounts={repositoryContributorCounts} loading={repositoryCatalogLoading} contributorsLoading={repositoryContributorsLoading} error={repositoryCatalogError} contributorsError={repositoryContributorsError} />;
   } else if (view === "infrastructure") {
@@ -559,7 +505,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       </div>
       <AppLayout
         headerSelector="#top-navigation"
-        contentType={view === "overview" || view === "infrastructure" || view === "security" ? "dashboard" : view === "gitlab-tickets" ? "form" : "table"}
+        contentType={view === "overview" || view === "infrastructure" || view === "security" ? "dashboard" : "table"}
         navigation={navigation}
         navigationOpen={navigationOpen}
         onNavigationChange={({ detail }) => setNavigationOpen(detail.open)}
@@ -629,7 +575,7 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   overview: {
     title: "Operational overview",
     summary: "A personalized workflow view across only the repositories selected for the connected GitHub user.",
-    actions: ["Start with My work today for Scout recommendations and pull requests you added for personal follow-up.", "Use Since yesterday for a grouped briefing rather than an activity feed.", "Open drawers to verify approvals, required checks, mergeability, and workflow failure context.", "Use Customize cards to change the overview order for this GitHub user in this browser.", "Review your assigned Gitlab work items at the bottom of the page when that integration is available."],
+    actions: ["Start with My work today for Scout recommendations and pull requests you added for personal follow-up.", "Use Since yesterday for a grouped briefing rather than an activity feed.", "Open drawers to verify approvals, required checks, mergeability, and workflow failure context.", "Use Customize cards to change the overview order for this GitHub user in this browser."],
   },
   "pull-requests": {
     title: "Open pull requests",
@@ -645,11 +591,6 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
     title: "Renovate updates",
     summary: "Dependency pull requests authored by Renovate from renovate/* branches, newest first.",
     actions: ["Filter by repository or update text.", "Review assignment and requested-review state before opening GitHub."],
-  },
-  "gitlab-tickets": {
-    title: "Create Gitlab tickets",
-    summary: "A controlled batch workflow for creating issues with optional project labels in one selected, server-validated Gitlab project.",
-    actions: ["Draft and stage tickets without writing to Gitlab.", "Review the complete batch before confirming creation.", "Inspect individual success or failure results after submission."],
   },
   "uds-packages": {
     title: "UDS Packages catalog",
@@ -681,7 +622,7 @@ function OperatorHelp({ view, sonicAvailable }: { view: ConsoleView; sonicAvaila
 
         <ExpandableSection headerText="Feature guide">
         <h4>Work queues</h4>
-        <p>Pull request, Renovate, issue, pipeline, security, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
+        <p>Pull request, Renovate, issue, pipeline, and repository security views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub remains the destination for native review and investigation.</p>
         <h4>Repository health and versions</h4>
         <p>Repository pages combine current work with pull requests, pipeline health, dependency updates, repository security context, and version alignment. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
         <h4>Repository-specific capabilities</h4>
@@ -692,14 +633,13 @@ function OperatorHelp({ view, sonicAvailable }: { view: ConsoleView; sonicAvaila
         <ol>
           <li>The browser renders the console and calls local Next.js API routes.</li>
           <li>Server routes call the GitHub REST API for the configured operational repositories and the explicitly requested uds-packages organization catalog. The GitHub token never enters browser data.</li>
-          <li>The Gitlab server route uses the operator&apos;s token to load only open work assigned to that Gitlab user. The token never enters browser data.</li>
           <li>Repository-specific analysis retrieves only the selected source through the server and parses supported resources and references locally.</li>
         </ol>
       </ExpandableSection>
 
       <ExpandableSection headerText="Refresh and status behavior">
         <ul>
-          <li>GitHub operational data and assigned Gitlab work refresh every 60 seconds and on page reload. Current content stays visible while fresh data loads in the background. Repository contributor totals use a longer server cache to avoid repeatedly scanning the full organization. The refresh icon requests an immediate update.</li>
+          <li>GitHub operational data refreshes every 60 seconds and on page reload. Current content stays visible while fresh data loads in the background. Repository contributor totals use a longer server cache to avoid repeatedly scanning the full organization. The refresh icon requests an immediate update.</li>
           <li>In-memory and browser caching keep route transitions stable and avoid unnecessary requests.</li>
           <li>Red indicates an actual failure or unavailable dependency. Yellow indicates attention; blue indicates information or navigation.</li>
         </ul>
@@ -708,13 +648,13 @@ function OperatorHelp({ view, sonicAvailable }: { view: ConsoleView; sonicAvaila
         <ExpandableSection headerText="Safety and operator responsibilities">
           <ul>
             <li>Full operational monitoring remains limited to the tracked repository configuration. The UDS Packages catalog is read-only metadata; catalog-only repositories are not treated as managed.</li>
-            <li>GitHub remains read-only except for an explicitly confirmed re-run of a selected failed job or workflow. Gitlab writes are limited to the staged, reviewed, and explicitly confirmed ticket batch workflow; credentials are never exposed.</li>
+            <li>GitHub remains read-only except for an explicitly confirmed re-run of a selected failed job or workflow; credentials are never exposed.</li>
             <li>A successful or partially deployed test bundle must be removed with <strong>Remove deployment</strong>. Cleanup uses the exact artifact created by that session.</li>
             <li>If the cluster or GitHub is unavailable, the affected action is blocked rather than silently using stale assumptions.</li>
           </ul>
         </ExpandableSection>
 
-        <Box color="text-body-secondary">UDS Scout is local-first. GitHub access is read-only, and Gitlab ticket creation requires explicit confirmation.</Box>
+        <Box color="text-body-secondary">UDS Scout is local-first. GitHub access is read-only except for explicitly confirmed workflow reruns.</Box>
       </SpaceBetween>
     </Drawer>
   );

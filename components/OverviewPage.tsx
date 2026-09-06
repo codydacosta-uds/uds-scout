@@ -32,7 +32,7 @@ import type { DrawerSelection } from "./operations-types";
 import { EmptyState, MetricCard, pipelineStatus, PullAuthor, pullWorkflowStatus, relativeTime, repositoryAttentionAction, repositoryHealth, udsCommonStatusAction } from "./operations-ui";
 import { filterRenovateUpdatesByCheck, isMajorRenovateUpdate, renovateCheckFilterOptions, RenovateUpdatesTable, sortRenovateUpdates, type RenovateCheckFilter } from "./RenovateUpdatesTable";
 import type { RepositorySecurity, SecurityFinding, SecurityWorkspace, Vulnerability } from "./security-types";
-import type { GitLabWorkItems, Issue, Overview, PipelineRun, PullRequest, RepositoryCatalog, WorkflowFailure } from "./types";
+import type { Issue, Overview, PipelineRun, PullRequest, RepositoryCatalog, WorkflowFailure } from "./types";
 
 function greetingForHour(hour: number) {
   if (hour >= 5 && hour < 12) return "Good morning";
@@ -58,15 +58,6 @@ function DataFreshness({ generatedAt, refreshing, stale }: { generatedAt: string
       {refreshing ? label : <><span>{stale ? "Last update" : "Updated"} </span><time dateTime={generatedAt} suppressHydrationWarning>{time}</time></>}
     </span>
   );
-}
-
-function gitLabWorkItemStatus(status: GitLabWorkItems["items"][number]["status"]) {
-  if (!status) return <StatusIndicator type="pending">Not set</StatusIndicator>;
-  const category = status.category.toLowerCase();
-  if (category === "in_progress") return <StatusIndicator type="in-progress">{status.name}</StatusIndicator>;
-  if (category === "done") return <StatusIndicator type="success">{status.name}</StatusIndicator>;
-  if (category === "cancelled") return <StatusIndicator type="stopped">{status.name}</StatusIndicator>;
-  return <StatusIndicator type="pending">{status.name}</StatusIndicator>;
 }
 
 function ToolVersion({ release, generatedAt, className }: {
@@ -257,16 +248,13 @@ function SortableOverviewCard({ id, label, customizing, children }: {
   );
 }
 
-export function OverviewPage({ overview, securityWorkspace, personalWorkState, onPersonalWorkStateChange, refreshing, refreshError, gitLabWorkItems, gitLabLoading, gitLabError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
+export function OverviewPage({ overview, securityWorkspace, personalWorkState, onPersonalWorkStateChange, refreshing, refreshError, repositoryCatalog, repositoryCatalogLoading, repositoryCatalogError, refresh, openDrawer, navigate }: {
   overview: Overview;
   securityWorkspace: SecurityWorkspace | null;
   personalWorkState: PersonalWorkState;
   onPersonalWorkStateChange: (state: PersonalWorkState, confirmation?: string) => void;
   refreshing: boolean;
   refreshError: string | null;
-  gitLabWorkItems: GitLabWorkItems | null;
-  gitLabLoading: boolean;
-  gitLabError: string | null;
   repositoryCatalog: RepositoryCatalog | null;
   repositoryCatalogLoading: boolean;
   repositoryCatalogError: string | null;
@@ -741,50 +729,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
           empty={<EmptyState title="No repositories configured" detail="Add repositories to the tracked repository configuration." />}
         />
 
-        {overview.capabilities.gitlab && gitLabError && gitLabWorkItems ? (
-          <Flashbar items={[{
-            type: "warning",
-            header: "Gitlab work items could not be refreshed",
-            content: "Showing the last successfully loaded Gitlab work item list.",
-          }]} />
-        ) : null}
 
-        {overview.capabilities.gitlab ? <Table
-          variant="container"
-          stickyHeader
-          stripedRows
-          trackBy="id"
-          loading={gitLabLoading && !gitLabWorkItems}
-          loadingText="Loading assigned Gitlab work items"
-          header={
-            <Header
-              variant="h2"
-              counter={gitLabWorkItems ? `(${gitLabWorkItems.items.length})` : undefined}
-              description={gitLabWorkItems ? `Open work assigned to ${gitLabWorkItems.viewer.username}, newest created first.` : "Open work assigned to you in Gitlab."}
-              actions={<SpaceBetween direction="horizontal" size="s"><Button onClick={() => navigate("/gitlab/tickets")}>Create tickets</Button>{gitLabWorkItems ? <Button href={gitLabWorkItems.dashboardUrl} external>Open Gitlab board</Button> : null}</SpaceBetween>}
-            >
-              My Gitlab work items
-            </Header>
-          }
-          items={gitLabWorkItems?.items ?? []}
-          columnDefinitions={[
-            {
-              id: "work-item",
-              header: "Work item",
-              cell: (item) => <SpaceBetween size="xxs"><Link href={item.url} external fontSize="body-m">{item.title}</Link><Box color="text-body-secondary">{item.reference} · {item.type.replace(/_/g, " ")}{item.confidential ? " · confidential" : ""}</Box></SpaceBetween>,
-              sortingField: "title",
-            },
-            { id: "project", header: "Project", cell: (item) => item.project, sortingField: "project" },
-            { id: "status", header: "Status", cell: (item) => gitLabWorkItemStatus(item.status) },
-            { id: "labels", header: "Labels", cell: (item) => item.labels.length ? <SpaceBetween direction="horizontal" size="xxs">{item.labels.map((label) => <Badge key={label}>{label}</Badge>)}</SpaceBetween> : <Box color="text-body-secondary">None</Box> },
-            { id: "due", header: "Due", cell: (item) => item.dueDate ?? <Box color="text-body-secondary">No due date</Box>, sortingField: "dueDate" },
-            { id: "created", header: "Created", cell: (item) => relativeTime(item.createdAt, gitLabWorkItems?.generatedAt ?? overview.generatedAt), sortingField: "createdAt" },
-            { id: "updated", header: "Updated", cell: (item) => relativeTime(item.updatedAt, gitLabWorkItems?.generatedAt ?? overview.generatedAt), sortingField: "updatedAt" },
-          ]}
-          empty={gitLabError
-            ? <EmptyState title="Gitlab work items are unavailable" detail={gitLabError} />
-            : <EmptyState title="No open work assigned" detail="Your Gitlab work item queue is clear." />}
-        /> : null}
 
       </SpaceBetween>
     </ContentLayout>

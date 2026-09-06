@@ -2,7 +2,7 @@ import type { InfrastructureNode } from "./infrastructure-types";
 import type { ApplicationExposure, SecurityFinding, Vulnerability } from "./security-types";
 import type { Issue, Overview, PipelineRun, PullRequest, Repository, WorkflowFailure } from "./types";
 
-export type ConsoleView = "overview" | "pull-requests" | "renovate" | "security" | "gitlab-tickets" | "uds-packages" | "infrastructure" | "repository";
+export type ConsoleView = "overview" | "pull-requests" | "renovate" | "security" | "uds-packages" | "infrastructure" | "repository";
 
 export type DrawerSelection =
   | { type: "open-pulls"; repository?: string; unassignedOnly?: boolean }

@@ -251,8 +251,6 @@ export type Overview = {
   capabilities: {
     sonic: boolean;
     testLab: boolean;
-    gitlab: boolean;
-    gitlabTickets: boolean;
   };
   metrics: {
     repositories: number;

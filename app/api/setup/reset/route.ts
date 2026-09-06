@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { clearSessionGitHubToken, githubRequest, githubTokenStatus } from "@/lib/github";
-import { clearSessionGitlabToken } from "@/lib/gitlab";
 import { resetLocalSettings } from "@/lib/local-settings";
 import { clearSecurityRegistryTokenCache } from "@/lib/security-oci";
 
@@ -28,11 +27,10 @@ export async function POST(request: NextRequest) {
 
   resetLocalSettings(viewer?.login);
   clearSessionGitHubToken();
-  clearSessionGitlabToken();
   clearSecurityRegistryTokenCache();
 
   return NextResponse.json({
     reset: true,
-    environmentTokensRemain: Boolean(process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? process.env.GITLAB_TOKEN),
+    environmentTokensRemain: Boolean(process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN),
   });
 }

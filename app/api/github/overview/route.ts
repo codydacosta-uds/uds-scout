@@ -346,7 +346,7 @@ export async function GET() {
     return NextResponse.json({
       viewer: { login: viewer.login, name: viewer.name, avatar: viewer.avatar_url, url: viewer.html_url },
       preferences: { renovateReviewDay: localSettings?.renovateReviewDay ?? DEFAULT_RENOVATE_REVIEW_DAY },
-      capabilities: { sonic: hasSonic, testLab: hasTestLabRepository, gitlab: false, gitlabTickets: false },
+      capabilities: { sonic: hasSonic, testLab: hasTestLabRepository },
       metrics: {
         repositories: repositories.length,
         private: repositories.filter((repo) => repo.private).length,
