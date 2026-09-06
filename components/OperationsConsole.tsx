@@ -652,8 +652,8 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
     actions: ["Filter the queue by title, repository, author, or assignee.", "Select one or more pull requests to add them to My work today.", "Open a pull request drawer before continuing to GitHub."],
   },
   security: {
-    title: "Security intelligence",
-    summary: "High-impact upstream application advisories with actionable container dependency context.",
+    title: "Repository security context",
+    summary: "Security findings and evidence coverage for eligible selected repositories.",
     actions: ["Start with Critical and High upstream application CVEs.", "Use container evidence when Scout correlates it with an image update pull request.", "Review visibility before interpreting an empty result as clear."],
   },
   renovate: {
@@ -696,11 +696,11 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
 
         <ExpandableSection headerText="Feature guide">
         <h4>Work queues</h4>
-        <p>Pull request, Renovate, issue, pipeline, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
+        <p>Pull request, Renovate, issue, pipeline, security, and assigned Gitlab work item views prioritize work that can lead to an engineering action. Drawers provide context, while GitHub and Gitlab remain the destinations for native review and investigation.</p>
         <h4>Repository health and versions</h4>
-        <p>Repository pages combine current work with latest pipeline health. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
-        <h4>Infrastructure knowledge</h4>
-        <p>Infrastructure Explorer translates Terraform into an inventory and dependency view. Expand implementation details only when Terraform addresses or source mechanics are needed.</p>
+        <p>Repository pages combine current work with pull requests, pipeline health, dependency updates, repository security context, and version alignment. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
+        <h4>Repository-specific capabilities</h4>
+        <p>Some recognized repositories expose additional context. For example, the Infrastructure Explorer translates selected SONIC Terraform into an inventory and dependency view. It does not affect repositories that do not provide that capability.</p>
       </ExpandableSection>
 
       <ExpandableSection headerText="Connections and data flow">
@@ -708,7 +708,7 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
           <li>The browser renders the console and calls local Next.js API routes.</li>
           <li>Server routes call the GitHub REST API for the configured operational repositories and the explicitly requested uds-packages organization catalog. The GitHub token never enters browser data.</li>
           <li>The Gitlab server route uses the operator&apos;s token to load only open work assigned to that Gitlab user. The token never enters browser data.</li>
-          <li>Infrastructure analysis retrieves SONIC Terraform source through the server and parses resources and references locally.</li>
+          <li>Repository-specific analysis retrieves only the selected source through the server and parses supported resources and references locally.</li>
         </ol>
       </ExpandableSection>
 
@@ -723,7 +723,7 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
         <ExpandableSection headerText="Safety and operator responsibilities">
           <ul>
             <li>Full operational monitoring remains limited to the tracked repository configuration. The UDS Packages catalog is read-only metadata; catalog-only repositories are not treated as managed.</li>
-            <li>UDS Scout never mutates GitHub. Gitlab writes are limited to the staged, reviewed, and explicitly confirmed ticket batch workflow; API quota and credentials are never exposed.</li>
+            <li>GitHub remains read-only except for an explicitly confirmed re-run of a selected failed job or workflow. Gitlab writes are limited to the staged, reviewed, and explicitly confirmed ticket batch workflow; credentials are never exposed.</li>
             <li>A successful or partially deployed test bundle must be removed with <strong>Remove deployment</strong>. Cleanup uses the exact artifact created by that session.</li>
             <li>If the cluster or GitHub is unavailable, the affected action is blocked rather than silently using stale assumptions.</li>
           </ul>
