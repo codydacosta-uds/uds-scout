@@ -665,10 +665,10 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
         /></div>
 
         {briefingItems.length ? (
-          <Container header={<Header variant="h2" description="Changes detected in the last 24 hours." actions={<Button onClick={() => openDrawer({ type: "briefing", since: activeBriefingSince })}>View details</Button>}><span className="section-heading section-heading-briefing">Since yesterday <span className="section-heading-count">({briefingItems.length})</span></span></Header>}>
+          <Container header={<Header variant="h2" description="Meaningful changes detected in the last 24 hours." actions={<Button onClick={() => openDrawer({ type: "briefing", since: activeBriefingSince })}>View details</Button>}><span className="section-heading section-heading-briefing">Changes since yesterday <span className="section-heading-count">({briefingItems.length})</span></span></Header>}>
             <div className="briefing-summary-grid">
               <SpaceBetween size="xxs"><Box variant="awsui-key-label">WAITING ON YOU</Box><Box variant="awsui-value-large">{briefingWaiting}</Box></SpaceBetween>
-              <SpaceBetween size="xxs"><Box variant="awsui-key-label">PR PROGRESS</Box><Box variant="awsui-value-large">{briefingProgress}</Box></SpaceBetween>
+              <SpaceBetween size="xxs"><Box variant="awsui-key-label">PULL REQUEST PROGRESS</Box><Box variant="awsui-value-large">{briefingProgress}</Box></SpaceBetween>
               <SpaceBetween size="xxs"><Box variant="awsui-key-label">WORKFLOW CHANGES</Box><Box variant="awsui-value-large">{briefingFailures + briefingRecoveries}</Box></SpaceBetween>
               <SpaceBetween size="xxs"><Box variant="awsui-key-label">ASSIGNED ISSUES</Box><Box variant="awsui-value-large">{briefingItems.filter((item) => item.type === "issue-assigned").length}</Box></SpaceBetween>
             </div>
