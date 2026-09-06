@@ -1,5 +1,6 @@
 import type { RenovateReviewDay } from "@/lib/renovate-review";
 import type { RenovateUpdateDetails } from "@/lib/renovate-update";
+import type { RenovateAutomergeStatus } from "@/lib/renovate-config";
 
 export type ZeusFilesystemUsage = {
   label: string;
@@ -382,5 +383,6 @@ export type RepositoryWorkspace = {
   pulls: { open: PullRequest[]; closed: PullRequest[] };
   issues?: Issue[];
   actions: { total: number; runs: PipelineRun[] } | null;
+  renovateAutomerge: RenovateAutomergeStatus;
   generatedAt: string;
 };

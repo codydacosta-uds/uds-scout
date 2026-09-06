@@ -12,6 +12,7 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Added
 
+- Added a Renovate automerge indicator to UDS package repository pages, sourced from each repository's Renovate configuration.
 - Added a server-side Security monitor that starts with Scout, checks configured repositories without requiring a browser Security page to be open, and refreshes advisory data every 15 minutes.
 - Added latest available package versions and update status to the SONIC bundle package table, with architecture-qualified registry links. Updates sort first, unknown results follow, and current packages sort last; status filtering is also available.
 - SONIC package comparisons now preserve and display the bundle-selected flavor and architecture, and only compare against releases for that same flavor.
