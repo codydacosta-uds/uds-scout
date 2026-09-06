@@ -5,9 +5,12 @@ export const UDS_SCOUT_REPOSITORY_URL = "https://github.com/codydacosta-uds/uds-
 // SONIC capabilities are keyed to the selected repository, not to any quick-select group.
 export const SONIC_REPOSITORY = "nswccd-devsecops/sonic-swf-iac";
 
-export function isSecurityIntelligenceRepository(repository: string) {
-  return repository.toLowerCase() !== SONIC_REPOSITORY.toLowerCase();
+export function isSecurityContextRepository(repository: string) {
+  return Boolean(repository.trim());
 }
+
+/** @deprecated Use isSecurityContextRepository. */
+export const isSecurityIntelligenceRepository = isSecurityContextRepository;
 
 // The implementation remains available for a future release, but no Test Lab
 // route, API, navigation item, or pull-request handoff is exposed yet.

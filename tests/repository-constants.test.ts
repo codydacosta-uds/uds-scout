@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   CONFIGURED_WORKSPACE_PRESETS,
-  isSecurityIntelligenceRepository,
+  isSecurityContextRepository,
   SONIC_REPOSITORY,
   TEST_LAB_REPOSITORIES,
   workspacePresetsWithConfig,
 } from "@/lib/repository-constants";
 
 describe("repository policy", () => {
-  it("excludes SONIC from package security intelligence", () => {
-    expect(isSecurityIntelligenceRepository(SONIC_REPOSITORY.toUpperCase())).toBe(false);
-    expect(isSecurityIntelligenceRepository("uds-packages/jenkins")).toBe(true);
+  it("provides repository security context for every selected repository", () => {
+    expect(isSecurityContextRepository(SONIC_REPOSITORY.toUpperCase())).toBe(true);
+    expect(isSecurityContextRepository("uds-packages/jenkins")).toBe(true);
   });
 
   it("never includes SONIC in the Test Lab allowlist", () => {

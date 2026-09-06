@@ -32,7 +32,7 @@ These screenshots use current repository data from a local Scout workspace and s
 1. Select the repositories you maintain.
 2. Scout collects their current operational state.
 3. **My work today** prioritizes reviews, blockers, failed checks, dependency updates, and assigned work.
-4. Each eligible repository includes operational, dependency, version-alignment, and security context.
+4. Each selected repository includes operational, dependency, version-alignment, and security context; coverage is explicit when evidence is unavailable.
 5. Follow the source links to GitHub, GitLab, a registry, or another underlying system for detailed investigation or action.
 
 For example, a Renovate pull request with failed checks or a conflict is surfaced ahead of a routine update. The routine update remains visible, but it does not compete with work that currently needs intervention.
@@ -61,13 +61,13 @@ Every selected repository gets a repository workspace with the context available
 - Dependency and Renovate updates, including update type, check state, and intervention signals
 - UDS Core and UDS Common version/configuration alignment where applicable
 - Repository metadata, issues, releases, and source links
-- **Repository security context** for eligible package repositories, described below
+- **Repository security context**, described below
 
 Scout refreshes GitHub data every 60 seconds and on page load while retaining cached content during route changes and transient refresh failures.
 
 ### Repository security context
 
-Security is part of repository health, not a separate product or optional workflow. When an eligible repository is selected, Scout automatically attempts to establish the security context available for it.
+Security is part of repository health, not a separate product or optional workflow. When a repository is selected, Scout automatically attempts to establish the security context available for it.
 
 Scout progressively uses package definitions, upstream product identity, advisories, OCI metadata, SBOMs, attestations, and related public evidence to answer maintainer questions:
 
@@ -89,16 +89,6 @@ Renovate updates are authored by Renovate and identified from their `renovate/*`
 ### UDS package catalog
 
 The UDS Packages catalog provides a searchable, sortable, paginated view of the configured package repositories and contributor totals. It is a discovery and status surface, not a replacement for repository work in GitHub.
-
-## Repository-specific capabilities
-
-Scout can expose specialized capabilities for recognized repositories without making them part of the general maintainer workflow. SONIC is the primary example:
-
-- When `nswccd-devsecops/sonic-swf-iac` is selected, Scout can show SONIC-specific infrastructure inventory, deployment relationships, bundle package versions, and UDS alignment context.
-- The SONIC Infrastructure Explorer appears only when that repository is selected.
-- SONIC is not required to use Scout and its infrastructure views do not affect maintainers of other repositories.
-
-Detailed SONIC material is kept in [`docs/sonic/`](docs/sonic/).
 
 ## GitLab’s current role
 
@@ -165,7 +155,7 @@ Repository quick-select groups are defined in [`config/repository-groups.json`](
 | `GH_TOKEN` | No | Fallback GitHub token name |
 | `NVD_API_KEY` | No | Optional server-only NVD API key for faster advisory refreshes |
 | `GITLAB_TOKEN` | No | Server-only GitLab API token |
-| `GITLAB_URL` | No | GitLab origin; defaults to `https://gitlab.sonic.mil` |
+| `GITLAB_URL` | No | GitLab origin; defaults to the configured internal GitLab host |
 | `GITHUB_REPOSITORIES` | No | Comma-separated repository override |
 | `UDS_SCOUT_SETTINGS_PATH` | No | Alternate non-secret settings path |
 | `UDS_SCOUT_SECURITY_PATH` | No | Alternate local security-cache path |
@@ -193,7 +183,6 @@ For unattended startup, keep credentials in a protected runtime `.env.local` fil
 ## Documentation and source map
 
 - [`docs/security.md`](docs/security.md) — security evidence, coverage states, sources, and normalization
-- [`docs/sonic/`](docs/sonic/) — SONIC-specific infrastructure and deployment capabilities
 - [`CHANGELOG.md`](CHANGELOG.md) — released and upcoming user-facing changes
 - [`components/OperationsConsole.tsx`](components/OperationsConsole.tsx) — shell, navigation, loading, and caching
 - [`components/OverviewPage.tsx`](components/OverviewPage.tsx) — My work today, repository health, and work queues

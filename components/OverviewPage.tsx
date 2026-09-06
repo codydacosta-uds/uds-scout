@@ -25,7 +25,7 @@ import Textarea from "@cloudscape-design/components/textarea";
 import { useEffect, useState } from "react";
 import { isMyWorkItemHidden, MY_WORK_SORT_OPTIONS, myWorkItemFingerprint, myWorkItemKey, personalWorkReferenceForIssue, personalWorkReferenceForPull, personalWorkReferenceForSecurityFinding, personalWorkReferenceForWorkflow, personalWorkReferenceKey, removeReferencesFromPersonalWork, updatePersonalWorkNote, type MyWorkPull, type MyWorkSort, type PersonalWorkReference, type PersonalWorkState } from "@/lib/my-work";
 import { renovateReviewDayForDate } from "@/lib/renovate-review";
-import { isSecurityIntelligenceRepository } from "@/lib/repository-constants";
+
 import { PrimaryActionButton } from "./action-ui";
 import { InfoPopover as PanelInfo } from "./info-ui";
 import type { DrawerSelection } from "./operations-types";
@@ -723,7 +723,6 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
             { id: "pipeline", header: "Default branch workflow", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "pipelines", repository: item.fullName })}>{pipelineStatus(item.pipeline)}</Button> },
             { id: "renovate", header: "Renovate attention", cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} elevated</Badge></Link> : <Box color="text-body-secondary">Informational</Box> },
             { id: "security", header: "Security context", cell: (item) => {
-              if (!isSecurityIntelligenceRepository(item.fullName)) return <Box color="text-body-secondary">Not included</Box>;
               const security = securityByRepository.get(item.fullName.toLowerCase());
               if (!security || security.state === "queued" || security.state === "refreshing" || security.state === "pending") return <StatusIndicator type="in-progress">Analyzing</StatusIndicator>;
               if (!security.applicable) return <Box color="text-body-secondary">Not applicable</Box>;

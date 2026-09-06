@@ -30,7 +30,7 @@ import TopNavigation from "@cloudscape-design/components/top-navigation";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { addReferencesToPersonalWork, EMPTY_PERSONAL_WORK_STATE, isPullInPersonalWork, isReferenceInPersonalWork, personalWorkReferenceForIssue, personalWorkReferenceForWorkflow, personalWorkStorageName, readPersonalWorkState, writePersonalWorkState, type MyWorkIssue, type MyWorkPipeline, type MyWorkPull, type PersonalWorkReference, type PersonalWorkState } from "@/lib/my-work";
-import { isSecurityIntelligenceRepository, SONIC_REPOSITORY, UDS_SCOUT_REPOSITORY_URL } from "@/lib/repository-constants";
+import { isSecurityContextRepository, SONIC_REPOSITORY, UDS_SCOUT_REPOSITORY_URL } from "@/lib/repository-constants";
 import { GitLabTicketComposer } from "./GitLabTicketComposer";
 import { ActionSuccessToast, PrimaryActionButton, type ActionConfirmation } from "./action-ui";
 import { InfrastructureExplorer } from "./InfrastructureExplorer";
@@ -376,7 +376,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     fetch(`/api/security${securityRefreshRequest ? "?refresh=true" : ""}`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "Security intelligence could not be loaded.");
+        if (!response.ok) throw new Error(data.error ?? "Repository security context could not be loaded.");
         return data as SecurityWorkspace;
       })
       .then((data) => {
@@ -432,8 +432,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     info: repository.attention.level === "action-required" ? <Badge color={pipelineFailed(repository.pipeline?.conclusion) ? "red" : "severity-medium"}>Action</Badge> : repository.udsCommon?.status === "outdated" ? <span className="repository-common-update-indicator" title="UDS Common update available" aria-label="UDS Common update available" /> : undefined,
   }));
 
-  const directApplicationCriticalCves = new Set((securityWorkspace?.repositories ?? []).flatMap((repository) => repository.findings.filter((finding) => finding.category === "application" && finding.severity === "critical").map((finding) => finding.vulnerabilityId))).size;
-
   const navigation = (
     <SideNavigation
       activeHref={activeHref}
@@ -452,7 +450,6 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
           items: [
             { type: "link" as const, text: "Open pull requests", href: "/pull-requests", icon: <Icon name="file" /> },
             { type: "link" as const, text: "Renovate updates", href: "/renovate", icon: <Icon name="status-warning" />, info: overview?.renovate.total ? <Badge color="severity-medium">{overview.renovate.total}</Badge> : undefined },
-            { type: "link" as const, text: "Security intelligence", href: "/security", icon: <Icon name="security" />, info: directApplicationCriticalCves ? <Badge color="red">{directApplicationCriticalCves}</Badge> : undefined },
           ],
         },
         ...(overview?.capabilities.sonic ? [{
@@ -508,7 +505,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
       }] : []),
       ...(securityError ? [{
         type: securityWorkspace ? "warning" as const : "error" as const,
-        header: "Security intelligence could not be refreshed",
+        header: "Repository security context could not be refreshed",
         content: securityWorkspace ? "Showing the last security state loaded by Scout." : securityError,
       }] : []),
     ]} /></div>
@@ -653,7 +650,7 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   },
   security: {
     title: "Repository security context",
-    summary: "Security findings and evidence coverage for eligible selected repositories.",
+    summary: "Security findings and evidence coverage for this selected repository.",
     actions: ["Start with Critical and High upstream application CVEs.", "Use container evidence when Scout correlates it with an image update pull request.", "Review visibility before interpreting an empty result as clear."],
   },
   renovate: {
@@ -1091,7 +1088,7 @@ function RepositoryPage({ overview, infrastructure, personalWorkState, onAddPull
   openDrawer: (selection: DrawerSelection) => void;
   navigate: (href: string) => void;
 }) {
-  const securityEligible = isSecurityIntelligenceRepository(repositoryName ?? "");
+  const securityEligible = isSecurityContextRepository(repositoryName ?? "");
   const requestedTab = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("tab") : null;
   const [activeTab, setActiveTab] = useState(requestedTab === "security" && securityEligible ? "security" : "overview");
   const [sonicPackageFilter, setSonicPackageFilter] = useState("");

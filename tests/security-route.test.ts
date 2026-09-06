@@ -18,7 +18,7 @@ function request(query = "") {
   return new NextRequest(`http://127.0.0.1:3001/api/security${query}`);
 }
 
-describe("Security Intelligence API scope", () => {
+describe("Repository security API scope", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.isTracked.mockReturnValue(true);
@@ -33,14 +33,15 @@ describe("Security Intelligence API scope", () => {
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 
-  it("excludes SONIC from package security intelligence", async () => {
-    expect((await GET(request("?repository=nswccd-devsecops/sonic-swf-iac"))).status).toBe(403);
-    expect(mocks.snapshot).not.toHaveBeenCalled();
+  it("includes SONIC when it is explicitly tracked", async () => {
+    const response = await GET(request("?repository=nswccd-devsecops/sonic-swf-iac"));
+    expect(response.status).toBe(200);
+    expect(mocks.snapshot).toHaveBeenCalledWith(["nswccd-devsecops/sonic-swf-iac"], false);
   });
 
-  it("passes only tracked package repositories to the service", async () => {
+  it("passes every tracked repository to the service", async () => {
     const response = await GET(request("?refresh=true"));
     expect(response.status).toBe(200);
-    expect(mocks.snapshot).toHaveBeenCalledWith(["uds-packages/jenkins"], true);
+    expect(mocks.snapshot).toHaveBeenCalledWith(["uds-packages/jenkins", "nswccd-devsecops/sonic-swf-iac"], true);
   });
 });

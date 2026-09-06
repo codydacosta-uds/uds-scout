@@ -1,5 +1,5 @@
-import OperationsConsole from "@/components/OperationsConsole";
+import { redirect } from "next/navigation";
 
 export default function SecurityPage() {
-  return <OperationsConsole view="security" />;
+  redirect("/");
 }

@@ -185,12 +185,12 @@ export function RepositorySecurityPanel({ security, repository, overview, person
   const affectedContainerImages = new Set(severeContainerFindings.map((finding) => finding.artifactId).filter(Boolean));
   const dependencyUpdatePulls = new Set(severeContainerFindings.map((finding) => relatedUpdate(finding, security?.vulnerabilities[finding.vulnerabilityId], pulls)?.id).filter(Boolean));
 
-  if (!security) return <Container><Box textAlign="center"><Spinner /> Loading cached security intelligence</Box></Container>;
+  if (!security) return <Container><Box textAlign="center"><Spinner /> Loading cached repository security</Box></Container>;
   if (security.applicable === false) return <Container><EmptyState title="No Zarf packages discovered" detail="Scout found no valid ZarfPackageConfig definitions in this repository. Repository operations remain available normally." /></Container>;
 
   return (
     <SpaceBetween size="l">
-      {security.error ? <Flashbar items={[{ type: "warning", header: "Security intelligence could not be refreshed", content: `${security.error} Cached findings remain visible when available.` }]} /> : null}
+      {security.error ? <Flashbar items={[{ type: "warning", header: "Repository security could not be refreshed", content: `${security.error} Cached findings remain visible when available.` }]} /> : null}
       {analysisProgress(security)}
       <Container header={<Header variant="h2" description="Upstream application advisories first; container dependencies remain supporting evidence." info={<InfoPopover header="Security decision">Scout prioritizes unique Critical and High application CVEs from upstream and authoritative sources. It analyzes each shipped image for accuracy, but collapses repeated package and flavor occurrences into one maintainer decision.</InfoPopover>}>Security decision</Header>}>
         <KeyValuePairs columns={3} items={[
@@ -273,7 +273,7 @@ export function GlobalSecurityPage({ workspace, overview, loading, refresh, navi
     return priority(left) - priority(right) || left.repositoryId.localeCompare(right.repositoryId);
   });
   return (
-    <ContentLayout header={<Header variant="h1" description="High-impact upstream application advisories with container dependency context." info={<InfoPopover header="Security Intelligence">Scout identifies the upstream product from package, chart, image, and SBOM metadata, then prioritizes authoritative Critical and High application advisories. Exact package and flavor evidence remains internal unless needed to explain container visibility. Coverage reflects only sources Scout could evaluate, never an implied zero.</InfoPopover>} actions={<Button iconName="refresh" variant="icon" ariaLabel="Refresh security intelligence" loading={loading} onClick={refresh} />}>Security intelligence</Header>}>
+    <ContentLayout header={<Header variant="h1" description="High-impact upstream application advisories with container dependency context." info={<InfoPopover header="Repository security">Scout identifies the upstream product from package, chart, image, and SBOM metadata, then prioritizes authoritative Critical and High application advisories. Exact package and flavor evidence remains internal unless needed to explain container visibility. Coverage reflects only sources Scout could evaluate, never an implied zero.</InfoPopover>} actions={<Button iconName="refresh" variant="icon" ariaLabel="Refresh repository security" loading={loading} onClick={refresh} />}>Repository security</Header>}>
       <SpaceBetween size="l">
         <Container header={<Header variant="h2" description="Security state that may change a maintainer decision.">Maintainer security queue</Header>}>
           {workspace ? <KeyValuePairs columns={3} items={[
@@ -283,7 +283,7 @@ export function GlobalSecurityPage({ workspace, overview, loading, refresh, navi
             { label: "Repositories with dependency update PRs", value: repositoriesWithDependencyUpdates },
             { label: "Application versions checked", value: `${repositories.flatMap((repository) => repository.applications).filter((application) => application.coverage !== "unknown").length} / ${workspace.summary.applications}` },
             { label: "Container visibility", value: `${workspace.summary.coverage.full} full · ${workspace.summary.coverage.partial} mixed · ${workspace.summary.coverage.unavailable} unavailable` },
-          ]} /> : <Box textAlign="center"><Spinner /> Loading cached security intelligence</Box>}
+          ]} /> : <Box textAlign="center"><Spinner /> Loading cached repository security</Box>}
         </Container>
         <Table
           variant="container" stickyHeader stripedRows trackBy="repositoryId" loading={loading && !workspace} items={orderedRepositories}
@@ -295,7 +295,7 @@ export function GlobalSecurityPage({ workspace, overview, loading, refresh, navi
             { id: "action", header: "Next action", cell: (item) => { const highImpactApp = item.findings.some((finding) => finding.category === "application" && (finding.severity === "critical" || finding.severity === "high")); if (highImpactApp) return <Button variant="inline-link" onClick={() => navigate(`/repositories/${item.repositoryId}?tab=security`)}>Review upstream update</Button>; if (item.findings.some((finding) => finding.category === "application")) return <Button variant="inline-link" onClick={() => navigate(`/repositories/${item.repositoryId}?tab=security`)}>Review application advisories</Button>; const pulls = overview.pullRequests.filter((pull) => pull.repository === item.repositoryId); const dependencyUpdate = item.findings.some((finding) => finding.category !== "application" && (finding.severity === "critical" || finding.severity === "high") && Boolean(relatedUpdate(finding, item.vulnerabilities[finding.vulnerabilityId], pulls))); if (dependencyUpdate) return <Button variant="inline-link" onClick={() => navigate(`/repositories/${item.repositoryId}?tab=security`)}>Review dependency update</Button>; if (item.applications.some((application) => application.coverage !== "full")) return <Box color="text-body-secondary">No maintainer action</Box>; return <Box color="text-body-secondary">No immediate action</Box>; } },
             { id: "activity", header: "Last checked", cell: (item) => item.analyzedAt ? relativeTime(item.analyzedAt, workspace?.generatedAt ?? overview.generatedAt) : item.state === "refreshing" || item.state === "queued" ? <StatusIndicator type="in-progress">Refreshing</StatusIndicator> : <Box color="text-body-secondary">Not analyzed</Box> },
           ]}
-          empty={<EmptyState title="No tracked repositories" detail="Choose repositories in Workspace settings before loading security intelligence." />}
+          empty={<EmptyState title="No tracked repositories" detail="Choose repositories in Workspace settings before loading repository security." />}
         />
       </SpaceBetween>
     </ContentLayout>
