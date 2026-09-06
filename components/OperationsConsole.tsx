@@ -535,12 +535,12 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
     content = <UdsPackagesCatalogPage overview={overview} catalog={repositoryCatalog} contributorCounts={repositoryContributorCounts} loading={repositoryCatalogLoading} contributorsLoading={repositoryContributorsLoading} error={repositoryCatalogError} contributorsError={repositoryContributorsError} />;
   } else if (view === "infrastructure") {
     content = !overview.capabilities.sonic
-      ? <Container><EmptyState title="Infrastructure Explorer is unavailable" detail="Select nswccd-devsecops/sonic-swf-iac in Workspace settings to access SONIC infrastructure knowledge." /><Box textAlign="center"><PrimaryActionButton onClick={() => router.push("/settings/repositories")}>Manage GitHub repositories</PrimaryActionButton></Box></Container>
+      ? <Container><EmptyState title="Infrastructure Explorer is unavailable" detail="Select a repository with infrastructure capabilities in Workspace settings to access infrastructure knowledge." /><Box textAlign="center"><PrimaryActionButton onClick={() => router.push("/settings/repositories")}>Manage GitHub repositories</PrimaryActionButton></Box></Container>
       : infrastructureLoading && !infrastructure
         ? <Box textAlign="center" padding={{ vertical: "xxxl" }}><SpaceBetween size="m"><Spinner size="large" /><Box color="text-body-secondary">Analyzing Terraform configuration and relationships…</Box></SpaceBetween></Box>
         : infrastructure
           ? <InfrastructureExplorer data={infrastructure} onSelect={(node) => openDrawer({ type: "infrastructure-node", node })} />
-          : <EmptyState title="Infrastructure analysis is unavailable" detail="Confirm the SONIC Terraform source is available and try again." />;
+          : <EmptyState title="Infrastructure analysis is unavailable" detail="Confirm the selected infrastructure source is available and try again." />;
   } else {
     const repositoryOverview = overview.repositories.find((item) => item.fullName === repositoryName);
     const workspaceMatchesRepository = Boolean(workspace && workspace.repository.fullName.toLowerCase() === repositoryName?.toLowerCase());
@@ -571,7 +571,7 @@ export default function OperationsConsole({ view, repository: repositoryName }: 
         drawers={[
           {
             id: "help",
-            content: <OperatorHelp view={view} />,
+            content: <OperatorHelp view={view} sonicAvailable={Boolean(overview?.capabilities.sonic)} />,
             trigger: { iconName: "status-info" },
             ariaLabels: { drawerName: "Operator help", closeButton: "Close operator help", triggerButton: "Open operator help" },
             resizable: true,
@@ -673,7 +673,7 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   },
   infrastructure: {
     title: "Infrastructure Explorer",
-    summary: "A comprehension-first inventory of SONIC Terraform resources and parsed dependencies.",
+    summary: "A comprehension-first inventory of supported infrastructure resources and parsed dependencies.",
     actions: ["Select a resource to inspect purpose, ownership, relationships, and implementation details.", "Treat dependency links as parsed references, not file-proximity assumptions."],
   },
   repository: {
@@ -683,7 +683,7 @@ const helpForView: Record<ConsoleView, { title: string; summary: string; actions
   },
 };
 
-function OperatorHelp({ view }: { view: ConsoleView }) {
+function OperatorHelp({ view, sonicAvailable }: { view: ConsoleView; sonicAvailable: boolean }) {
   const page = helpForView[view];
   return (
     <Drawer header="Operator help">
@@ -700,7 +700,7 @@ function OperatorHelp({ view }: { view: ConsoleView }) {
         <h4>Repository health and versions</h4>
         <p>Repository pages combine current work with pull requests, pipeline health, dependency updates, repository security context, and version alignment. UDS Core is compared semantically with the latest upstream release. UDS Common versions are read from each root <code>tasks.yaml</code>.</p>
         <h4>Repository-specific capabilities</h4>
-        <p>Some recognized repositories expose additional context. For example, the Infrastructure Explorer translates selected SONIC Terraform into an inventory and dependency view. It does not affect repositories that do not provide that capability.</p>
+        <p>{sonicAvailable ? "The selected SONIC repository exposes an Infrastructure Explorer that translates Terraform into an inventory and dependency view. This capability does not affect other repositories." : "Some recognized repositories can expose additional infrastructure context. It appears only when the selected repository supports it."}</p>
       </ExpandableSection>
 
       <ExpandableSection headerText="Connections and data flow">

@@ -761,7 +761,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
             <Header
               variant="h2"
               counter={gitLabWorkItems ? `(${gitLabWorkItems.items.length})` : undefined}
-              description={gitLabWorkItems ? `Open work assigned to ${gitLabWorkItems.viewer.username}, newest created first.` : "Open work assigned to you in SONIC Gitlab."}
+              description={gitLabWorkItems ? `Open work assigned to ${gitLabWorkItems.viewer.username}, newest created first.` : "Open work assigned to you in Gitlab."}
               actions={<SpaceBetween direction="horizontal" size="s"><Button onClick={() => navigate("/gitlab/tickets")}>Create tickets</Button>{gitLabWorkItems ? <Button href={gitLabWorkItems.dashboardUrl} external>Open Gitlab board</Button> : null}</SpaceBetween>}
             >
               My Gitlab work items
@@ -784,7 +784,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
           ]}
           empty={gitLabError
             ? <EmptyState title="Gitlab work items are unavailable" detail={gitLabError} />
-            : <EmptyState title="No open work assigned" detail="Your SONIC Gitlab work item queue is clear." />}
+            : <EmptyState title="No open work assigned" detail="Your Gitlab work item queue is clear." />}
         /> : null}
 
       </SpaceBetween>

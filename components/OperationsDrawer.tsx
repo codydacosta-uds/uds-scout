@@ -717,7 +717,7 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
         <Drawer header="Latest UDS Core release" footer={<DrawerPrimaryButton href={overview.udsCore.upstreamUrl} external>Open UDS Core release</DrawerPrimaryButton>}>
           <SpaceBetween size="l">
             <Box variant="awsui-value-large">{overview.udsCore.upstreamVersion ?? "Unavailable"}</Box>
-            <Box color="text-body-secondary">This workspace does not track a SONIC repository, so UDS Scout shows the latest upstream defenseunicorns/uds-core release without a local comparison.</Box>
+            <Box color="text-body-secondary">This workspace has no local UDS Core configuration to compare, so UDS Scout shows the latest upstream release without a local comparison.</Box>
           </SpaceBetween>
         </Drawer>
       );
