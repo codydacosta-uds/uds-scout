@@ -65,6 +65,25 @@ describe("GitHub workflow re-run route", () => {
     expect(await response.json()).toEqual({ accepted: true, scope: "workflow", previousAttempt: 1 });
   });
 
+  it("rejects invalid and untracked workflow status polling", async () => {
+    const invalid = await GET(new NextRequest("http://127.0.0.1:3001/api/github/workflow-rerun?repository=invalid&run=nope"));
+    expect(invalid.status).toBe(400);
+    expect(mocks.request).not.toHaveBeenCalled();
+
+    mocks.tracked.mockReturnValueOnce(false);
+    const untracked = await GET(new NextRequest(`http://127.0.0.1:3001/api/github/workflow-rerun?repository=${repository}&run=123`));
+    expect(untracked.status).toBe(403);
+    expect(mocks.request).not.toHaveBeenCalled();
+  });
+
+  it("reports GitHub errors while polling workflow status", async () => {
+    mocks.request.mockReset().mockRejectedValueOnce(new Error("unavailable"));
+    mocks.apiError.mockReturnValueOnce({ message: "GitHub API unavailable", status: 502 });
+    const response = await GET(new NextRequest(`http://127.0.0.1:3001/api/github/workflow-rerun?repository=${repository}&run=123`));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "GitHub API unavailable" });
+  });
+
   it("returns fresh workflow and latest-job status for automatic polling", async () => {
     mocks.request.mockReset()
       .mockResolvedValueOnce({ ...run, status: "in_progress", conclusion: null, run_attempt: 2, updated_at: "2026-09-08T18:00:00Z", html_url: "https://github.com/example/run" })
