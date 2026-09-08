@@ -236,7 +236,7 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
   if (changesRequestedBy.length) blockers.push(`Changes requested by ${changesRequestedBy.join(", ")}.`);
   if (requiredChecksFailing) blockers.push(`${failingChecks.map(checkName).join(", ")} ${failingChecks.length === 1 ? "is" : "are"} failing.`);
   if (unknownCheckFailure) blockers.push("Checks are failing, but required-check rules could not be verified.");
-  if (pull.mergeStateStatus === "BEHIND") blockers.push(`The branch is behind ${pull.baseRefName}.`);
+  if (pull.mergeStateStatus === "BEHIND") blockers.push(`The branch is behind ${pull.baseRefName}`);
 
   const policyLabels = new Set([...configuredLabels("PRIORITY"), ...configuredLabels("SECURITY")]);
   const policyMatch = pull.labels.nodes.some((label) => policyLabels.has(label.name.toLowerCase()));
@@ -292,7 +292,7 @@ function buildWorkflow(pull: GraphPull, viewer: string, rules: ProtectionRule[] 
     state = "waiting-on-others";
     progress = "approved-unmerged";
     label = "Approved but unmerged";
-    reason = pull.mergeStateStatus === "BEHIND" ? `The branch is behind ${pull.baseRefName}.` : "Approvals are complete, but merge readiness could not be confirmed.";
+    reason = pull.mergeStateStatus === "BEHIND" ? `The branch is behind ${pull.baseRefName}` : "Approvals are complete, but merge readiness could not be confirmed.";
   } else if (assignedToViewer) {
     state = "waiting-on-me";
     progress = approvals.length ? "partially-approved" : "waiting-reviewer";

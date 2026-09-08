@@ -10,6 +10,7 @@ import ExpandableSection from "@cloudscape-design/components/expandable-section"
 import Header from "@cloudscape-design/components/header";
 import KeyValuePairs from "@cloudscape-design/components/key-value-pairs";
 import Link from "@cloudscape-design/components/link";
+import Modal from "@cloudscape-design/components/modal";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Spinner from "@cloudscape-design/components/spinner";
 import StatusIndicator from "@cloudscape-design/components/status-indicator";
@@ -107,9 +108,10 @@ function PullRequestDescription({ pull }: { pull: PullRequest }) {
     return <Container header={<Header variant="h3">Description</Header>}><Box color="text-body-secondary">No pull request description is available. Open GitHub to inspect the changed files.</Box></Container>;
   }
 
-  const table = parsePullBody(body);
+  const displayBody = body.replace(/^\s*(?:#{1,6}\s*)?description\s*\n+/i, "");
+  const table = parsePullBody(displayBody);
   if (!table) {
-    return <Container header={<Header variant="h3">Description</Header>}><div className="pull-request-description">{markdownText(body)}</div></Container>;
+    return <Container header={<Header variant="h3">Description</Header>}><div className="pull-request-description">{markdownText(displayBody)}</div></Container>;
   }
 
   const dependencyTable = table.headers.some((header) => /package|dependency/i.test(header));
@@ -177,6 +179,10 @@ function FailureWorkingNotes({ viewer, noteKey, durableHref }: {
 }
 
 type WorkflowRerunTarget = { scope: "job" | "workflow"; label: string; jobId?: number };
+type WorkflowRerunStatus = {
+  run: { id: number; status: string; conclusion: string | null; runAttempt: number; updatedAt: string; url: string };
+  jobs: { id: number; name: string; status: string; conclusion: string | null; url: string }[];
+};
 
 function WorkflowRerunActions({ repository, runId, workflowLabel, job, children }: {
   repository: string;
@@ -190,6 +196,10 @@ function WorkflowRerunActions({ repository, runId, workflowLabel, job, children 
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<ActionConfirmation | null>(null);
   const [accepted, setAccepted] = useState(false);
+  const [acceptedTarget, setAcceptedTarget] = useState<WorkflowRerunTarget | null>(null);
+  const [previousAttempt, setPreviousAttempt] = useState<number | null>(null);
+  const [rerunStatus, setRerunStatus] = useState<WorkflowRerunStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const chooseTarget = (scope: "job" | "workflow") => setTarget(scope === "job" && job
     ? { scope, label: job.name, jobId: job.id }
     : { scope: "workflow", label: workflowLabel });
@@ -205,15 +215,20 @@ function WorkflowRerunActions({ repository, runId, workflowLabel, job, children 
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repository, runId: Number(runId), scope: target.scope, ...(target.jobId ? { jobId: target.jobId } : {}) }),
       });
-      const data = await response.json() as { accepted?: boolean; error?: string };
-      if (!response.ok || !data.accepted) throw new Error(data.error ?? "GitHub did not accept the re-run request.");
+      const data = await response.json() as { accepted?: boolean; previousAttempt?: number; error?: string };
+      if (!response.ok || !data.accepted || !data.previousAttempt) throw new Error(data.error ?? "GitHub did not accept the re-run request.");
+      const submittedTarget = target;
       setTarget(null);
       setAccepted(true);
+      setAcceptedTarget(submittedTarget);
+      setPreviousAttempt(data.previousAttempt);
+      setRerunStatus(null);
+      setStatusError(null);
       setConfirmation({
         header: target.scope === "job" ? "Job re-run requested" : "Workflow re-run requested",
         content: target.scope === "job"
-          ? `${target.label} was queued in GitHub. Scout will show the new status on refresh.`
-          : "The workflow was queued in GitHub. Scout will show the new status on refresh.",
+          ? `${target.label} was accepted by GitHub. Scout is tracking the current status.`
+          : "The workflow was accepted by GitHub. Scout is tracking the current status.",
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "GitHub did not accept the re-run request.");
@@ -222,10 +237,58 @@ function WorkflowRerunActions({ repository, runId, workflowLabel, job, children 
     }
   };
 
+  useEffect(() => {
+    if (previousAttempt === null || !acceptedTarget) return;
+    const controller = new AbortController();
+    let timer: number | null = null;
+    let active = true;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/github/workflow-rerun?repository=${encodeURIComponent(repository)}&run=${encodeURIComponent(runId)}`, { cache: "no-store", signal: controller.signal });
+        const data = await response.json() as WorkflowRerunStatus & { error?: string };
+        if (!response.ok) throw new Error(data.error ?? "The re-run status could not be loaded.");
+        if (!active) return;
+        setRerunStatus(data);
+        setStatusError(null);
+        const newAttemptFinished = data.run.runAttempt > previousAttempt && data.run.status === "completed";
+        if (newAttemptFinished) {
+          window.dispatchEvent(new CustomEvent("uds-scout:refresh"));
+          return;
+        }
+        timer = window.setTimeout(poll, 3_000);
+      } catch (reason) {
+        if (!active || (reason instanceof DOMException && reason.name === "AbortError")) return;
+        setStatusError(reason instanceof Error ? reason.message : "The re-run status could not be loaded.");
+        timer = window.setTimeout(poll, 5_000);
+      }
+    };
+    void poll();
+    return () => {
+      active = false;
+      controller.abort();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [acceptedTarget, previousAttempt, repository, runId]);
+
+  const trackedJob = acceptedTarget?.scope === "job" ? rerunStatus?.jobs.find((candidate) => candidate.name === acceptedTarget.label) ?? null : null;
+  const observedNewAttempt = Boolean(rerunStatus && previousAttempt !== null && rerunStatus.run.runAttempt > previousAttempt);
+  const trackedStatus = trackedJob?.status ?? rerunStatus?.run.status ?? "queued";
+  const trackedConclusion = trackedJob?.conclusion ?? rerunStatus?.run.conclusion ?? null;
+  const trackedLabel = acceptedTarget?.scope === "job" ? "Job" : "Workflow";
+  const statusPresentation = !observedNewAttempt
+    ? { type: "in-progress" as const, text: `Waiting for GitHub to start the ${trackedLabel.toLowerCase()} re-run` }
+    : trackedStatus !== "completed"
+      ? { type: "in-progress" as const, text: `${trackedLabel} ${trackedStatus === "queued" ? "queued" : "in progress"}` }
+      : trackedConclusion === "success"
+        ? { type: "success" as const, text: `${trackedLabel} passed` }
+        : { type: "error" as const, text: `${trackedLabel} ${trackedConclusion ?? "failed"}` };
+
   return (
     <SpaceBetween size="s">
       {confirmation ? <ActionSuccessToast confirmation={confirmation} onDismiss={() => setConfirmation(null)} /> : null}
       {error ? <StatusIndicator type="error">{error}</StatusIndicator> : null}
+      {acceptedTarget ? <div className="workflow-rerun-live-status"><StatusIndicator type={statusPresentation.type}>{statusPresentation.text}</StatusIndicator></div> : null}
+      {statusError ? <StatusIndicator type="warning">Status check delayed: {statusError}</StatusIndicator> : null}
       <SpaceBetween direction="horizontal" size="s">
         {children}
         {job ? (
@@ -361,7 +424,7 @@ function PullRequestFailureWorkspace({ pull, repository, overview, focusOnOpen }
           const runId = workflowRunId(check.url);
           const failure = relatedFailures.find((candidate) => runId && workflowRunId(candidate.url) === runId) ?? null;
           return (
-            <div className={`drawer-failure-option${key === selectedKey ? " drawer-failure-option-selected" : ""}`} key={key}>
+            <div className={`drawer-failure-option${key === selectedKey ? ` drawer-failure-option-selected drawer-failure-option-selected-${check.status}` : ""}`} key={key}>
               <div className="drawer-pipeline-heading">
                 <StatusIndicator type={check.status === "failed" ? "error" : "stopped"}>{check.status === "failed" ? "Failed" : "Cancelled"}</StatusIndicator>
                 <Button variant="inline-link" onClick={() => { setSelectedKey(key); setAttentionPulse((value) => value + 1); scrollToSelectedFailure(); }}>{check.name}</Button>
@@ -399,6 +462,36 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
   onAddReferenceToMyWork: (reference: PersonalWorkReference) => void;
   navigate: (href: string) => void;
 }) {
+  const [branchUpdateState, setBranchUpdateState] = useState<"idle" | "updating" | "updated" | "error">("idle");
+  const [branchUpdateKey, setBranchUpdateKey] = useState<string | null>(null);
+  const [branchUpdateError, setBranchUpdateError] = useState<string | null>(null);
+  const [branchUpdateConfirmation, setBranchUpdateConfirmation] = useState<{ repository: string; number: number } | null>(null);
+  const [copiedPullUrl, setCopiedPullUrl] = useState<string | null>(null);
+  const copyPullUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedPullUrl(url);
+      window.setTimeout(() => setCopiedPullUrl((current) => current === url ? null : current), 2000);
+    } catch {
+      setCopiedPullUrl(null);
+    }
+  };
+
+  const updatePullRequestBranch = async (repository: string, number: number) => {
+    setBranchUpdateKey(`${repository}:${number}`);
+    setBranchUpdateState("updating");
+    setBranchUpdateError(null);
+    try {
+      const response = await fetch("/api/github/pull-request/update-branch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repository, number }) });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "GitHub could not update the pull request branch.");
+      setBranchUpdateState("updated");
+    } catch (error) {
+      setBranchUpdateState("error");
+      setBranchUpdateError(error instanceof Error ? error.message : "GitHub could not update the pull request branch.");
+    }
+  };
+
   if (selection.type === "infrastructure-node" && infrastructure) {
     return <InfrastructureNodeDrawer node={selection.node} data={infrastructure} onSelect={(node) => onSelect({ type: "infrastructure-node", node })} />;
   }
@@ -459,6 +552,12 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     const readinessType = pull.workflow.mergeable === "CONFLICTING" || checkRollup.failing ? "error" : pull.draft || pull.workflow.mergeable === "UNKNOWN" || checkRollup.cancelled || checkRollup.pending ? "warning" : "success";
     const readinessStatus = <StatusIndicator type={readinessType}>{readinessParts.join(" · ")}</StatusIndicator>;
     const pullRepository = selection.repository ?? pull.repository ?? "";
+    const branchKey = `${pullRepository}:${pull.number}`;
+    const branchWasUpdated = branchUpdateState === "updated" && branchUpdateKey === branchKey;
+    const branchIsUpdating = branchUpdateState === "updating" && branchUpdateKey === branchKey;
+    const branchHasError = branchUpdateState === "error" && branchUpdateKey === branchKey;
+    const branchBehindMain = pull.workflow.blockers.some((blocker) => blocker.toLowerCase().includes("behind main"));
+    const visiblePullBlockers = pull.workflow.blockers.filter((blocker) => !(branchWasUpdated && blocker.toLowerCase().includes("behind main")));
     const pullInMyWork = Boolean(pullRepository && isPullInMyWork(pull, pullRepository));
     const summaryItems: { label: React.ReactNode; value: React.ReactNode }[] = [
       { label: "Repository", value: pullRepository ? <Button variant="inline-link" onClick={() => navigate(`/repositories/${pullRepository}`)}>{pullRepository}</Button> : "Unknown" },
@@ -473,11 +572,11 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
     return (
       <Drawer
         header={`Pull request #${pull.number}`}
-        footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={checkResultsUrl ?? pull.url} external>{pull.workflow.checks.rollup.failing ? "Open failed checks" : pull.workflow.checks.rollup.cancelled ? "Open cancelled checks" : pull.workflow.checks.rollup.pending ? "Open running checks" : "Open in GitHub"}</DrawerPrimaryButton>{pullRepository ? <Button disabled={pullInMyWork} onClick={() => onAddPullToMyWork(pull, pullRepository)}>{pullInMyWork ? "In My work" : "Add to My work"}</Button> : null}{checkResultsUrl ? <Button href={pull.url} external>Open pull request</Button> : null}</SpaceBetween>}
+        footer={<SpaceBetween direction="horizontal" size="xs"><DrawerPrimaryButton href={checkResultsUrl ?? pull.url} external>{pull.workflow.checks.rollup.failing ? "Open failed checks" : pull.workflow.checks.rollup.cancelled ? "Open cancelled checks" : pull.workflow.checks.rollup.pending ? "Open running checks" : "Open in GitHub"}</DrawerPrimaryButton>{pullRepository ? <Button disabled={pullInMyWork} onClick={() => onAddPullToMyWork(pull, pullRepository)}>{pullInMyWork ? "In My work" : "Add to My work"}</Button> : null}<Button onClick={() => void copyPullUrl(pull.url)}>{copiedPullUrl === pull.url ? "Copied" : "Copy PR URL"}</Button>{checkResultsUrl ? <Button href={pull.url} external>Open pull request</Button> : null}</SpaceBetween>}
       >
         <SpaceBetween size="l">
           <Box variant="h3">{pull.title}</Box>
-          {pull.workflow.blockers.length ? <SpaceBetween size="xs">{pull.workflow.blockers.map((blocker) => <StatusIndicator type={pull.workflow.checks.failing && blocker.toLowerCase().includes("failing") ? "error" : "warning"} key={blocker}>{blocker}</StatusIndicator>)}</SpaceBetween> : null}
+          {visiblePullBlockers.length || branchWasUpdated ? <SpaceBetween direction="horizontal" size="xs">{visiblePullBlockers.map((blocker) => <StatusIndicator type={pull.workflow.checks.failing && blocker.toLowerCase().includes("failing") ? "error" : "warning"} key={blocker}>{blocker}</StatusIndicator>)}{branchBehindMain ? <SpaceBetween direction="horizontal" size="xs">{branchWasUpdated ? <StatusIndicator type="info">Updated with main</StatusIndicator> : <Button variant="inline-link" onClick={() => setBranchUpdateConfirmation({ repository: pullRepository, number: pull.number })} loading={branchIsUpdating}>→ Update branch from main</Button>}{branchHasError ? <StatusIndicator type="error">{branchUpdateError}</StatusIndicator> : null}</SpaceBetween> : null}</SpaceBetween> : null}
           {pull.workflow.renovateUpdate?.major ? (
             <Container header={<Header variant="h3">Major version change</Header>}>
               <SpaceBetween size="xs">
@@ -500,6 +599,9 @@ export function OperationsDrawer({ selection, overview, infrastructure, onSelect
           {checkActivityCount ? <PullRequestFailureWorkspace key={`${selection.repository ?? pull.repository ?? "repository"}-${pull.id}-${pull.workflow.headSha ?? "head"}-${selection.focus ?? "default"}-${selection.focusRequest ?? 0}`} pull={pull} repository={selection.repository ?? pull.repository ?? "Unknown"} overview={overview} focusOnOpen={selection.focus === "failed-checks"} /> : null}
           <PullRequestDescription pull={pull} />
         </SpaceBetween>
+        <Modal visible={Boolean(branchUpdateConfirmation)} header="Update pull request branch?" onDismiss={() => setBranchUpdateConfirmation(null)} footer={<SpaceBetween direction="horizontal" size="xs"><Button onClick={() => setBranchUpdateConfirmation(null)}>Cancel</Button><PrimaryActionButton onClick={() => { if (branchUpdateConfirmation) void updatePullRequestBranch(branchUpdateConfirmation.repository, branchUpdateConfirmation.number); setBranchUpdateConfirmation(null); }}>Update branch</PrimaryActionButton></SpaceBetween>}>
+          GitHub will merge the latest <Box variant="code" display="inline">main</Box> branch into this pull request&apos;s source branch. This creates a merge commit on the source branch.
+        </Modal>
       </Drawer>
     );
   }

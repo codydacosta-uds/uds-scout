@@ -4,6 +4,8 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-08
+
 ### Changed
 
 - Removed the SONIC maintenance-window countdown from the global navigation.
@@ -12,6 +14,16 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 
 ### Added
 
+- Added explicitly confirmed SONIC package update pull requests from the bundle versions table, with flavor matching, exact source validation, conventional commits, and a `scout` label.
+- Added explicit SONIC package security coverage states so packages outside selected Scout repositories show as not evaluated or incomplete instead of appearing vulnerability-free.
+- SONIC bundle security now performs independent NVD checks for recognized products, so removing a package repository from the managed list does not remove its vulnerability signal.
+- Replaced the Cloudscape sidebar with a clean, single-panel MUI-style navigation, including search, grouped links, compact status counts, and matched light/dark surfaces.
+- Added browser-local stale-while-refresh setup, overview, and sidebar caching so the last successful workspace remains visible across page reloads while current data refreshes in the background.
+- Added a high-level SONIC security metric card that calls out Critical or High bundle vulnerabilities before package-level review.
+- Added an explicitly confirmed action to update pull request branches reported as behind `main`.
+- Workflow and failed-job reruns now poll GitHub automatically, show queued/running/completed status in the drawer, and refresh Scout data when the new attempt finishes.
+- Increased light-mode contrast for drawer descriptions and secondary text.
+- Expanded the Workflow failures overview card to include default-branch failures and non-default managed workflow branches with three or more failed attempts.
 - Added a Renovate automerge indicator to UDS package repository pages, sourced from each repository's Renovate configuration.
 - Added a server-side Security monitor that starts with Scout, checks configured repositories without requiring a browser Security page to be open, and refreshes advisory data every 15 minutes.
 - Added latest available package versions and update status to the SONIC bundle package table, with architecture-qualified registry links. Updates sort first, unknown results follow, and current packages sort last; status filtering is also available.
@@ -108,5 +120,6 @@ All notable user-facing changes to UDS Scout are documented here. This project f
 - Kept GitHub and Gitlab tokens in server-only memory or runtime environment variables and excluded them from browser API responses and persisted settings.
 - Limited Gitlab writes to reviewed ticket batches with server-side project, permission, label, and batch-size validation.
 
-[Unreleased]: https://github.com/codydacosta-uds/d2d-operations/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/codydacosta-uds/d2d-operations/releases/tag/v0.1.0
+[Unreleased]: https://github.com/codydacosta-uds/uds-scout/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/codydacosta-uds/uds-scout/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/codydacosta-uds/uds-scout/releases/tag/v0.1.0

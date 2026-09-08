@@ -17,15 +17,15 @@ Scout collects, normalizes, and prioritizes that information. It does not replac
 
 These screenshots use current repository data from a local Scout workspace and show the light theme. The overview highlights **My work today**, repository status, operational signals, and Renovate bot updates.
 
-| Overview | Repository status (6) and Renovate review |
+| Overview | Repository detail and Renovate configuration |
 | --- | --- |
-| [![UDS Scout overview](public/screenshots/overview.png)](public/screenshots/overview.png) | [![Repository status (6) and Renovate review](public/screenshots/overview-cards.png)](public/screenshots/overview-cards.png) |
+| [![UDS Scout overview](public/screenshots/overview.png)](public/screenshots/overview.png) | [![Repository detail and Renovate configuration](public/screenshots/repository-artifactory.png)](public/screenshots/repository-artifactory.png) |
 
 | Repository health | UDS Packages catalog |
 | --- | --- |
 | [![Repository health](public/screenshots/security.png)](public/screenshots/security.png) | [![UDS Packages catalog](public/screenshots/packages.png)](public/screenshots/packages.png) |
 
-[View a repository detail screenshot](public/screenshots/repository-jenkins.png)
+[View a repository detail screenshot](public/screenshots/repository-artifactory.png)
 
 ## The maintainer workflow
 
@@ -95,7 +95,7 @@ The UDS Packages catalog provides a searchable, sortable, paginated view of the 
 - Scout monitors only repositories explicitly selected in the workspace; it does not expand to every repository visible to the token.
 - Scout runs locally. It does not require a hosted Scout service, database, worker, or external Scout backend.
 - Credentials are read by server-side Next.js code and are never returned to browser code or API responses.
-- GitHub is read-only except for an explicitly confirmed re-run of a selected failed job or workflow.
+- GitHub is read-only except for explicitly confirmed re-runs of selected failed jobs or workflows and explicitly confirmed SONIC package update pull requests.
 - Scout does not silently mutate repositories.
 - Setup credentials remain in the running server process; environment credentials remain outside persisted Scout settings.
 - Only documented non-secret workspace preferences and local security cache data are persisted.

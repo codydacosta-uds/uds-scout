@@ -122,6 +122,7 @@ export type Vulnerability = {
   modifiedAt: string | null;
   references: string[];
   providers: string[];
+  affectedRanges?: { start: string | null; end: string | null }[];
 };
 
 export type SecurityFinding = {

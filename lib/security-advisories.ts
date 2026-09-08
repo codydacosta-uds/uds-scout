@@ -217,6 +217,27 @@ function nvdFixedVersions(matches: Record<string, unknown>[]) {
   return [...new Set(matches.flatMap((match) => typeof match.versionEndExcluding === "string" ? [match.versionEndExcluding] : []))];
 }
 
+function nvdAffectedRanges(configurations: unknown, cpe: string) {
+  const coordinate = cpe.split(":").slice(0, 5).join(":").toLowerCase();
+  const ranges: { start: string | null; end: string | null }[] = [];
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.cpeMatch)) for (const item of record.cpeMatch) {
+      if (!item || typeof item !== "object") continue;
+      const match = item as Record<string, unknown>;
+      if (match.vulnerable === false || typeof match.criteria !== "string" || !match.criteria.toLowerCase().startsWith(`${coordinate}:`)) continue;
+      ranges.push({ start: typeof match.versionStartIncluding === "string" ? match.versionStartIncluding : typeof match.versionStartExcluding === "string" ? match.versionStartExcluding : null, end: typeof match.versionEndExcluding === "string" ? match.versionEndExcluding : typeof match.versionEndIncluding === "string" ? match.versionEndIncluding : null });
+    }
+    for (const child of Object.values(record)) {
+      if (Array.isArray(child)) child.forEach(visit);
+      else visit(child);
+    }
+  };
+  visit(configurations);
+  return ranges;
+}
+
 function nvdScore(cve: NvdCve) {
   for (const key of ["cvssMetricV40", "cvssMetricV31", "cvssMetricV30", "cvssMetricV2"]) {
     for (const metric of cve.metrics?.[key] ?? []) {
@@ -275,6 +296,7 @@ export async function queryNvdApplicationAdvisories(cpe: string, version: string
         modifiedAt: cve.lastModified ?? null,
         references: [...new Set([`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve.id)}`, ...(cve.references ?? []).map((item) => item.url)].filter(Boolean))],
         providers: ["NVD"],
+        affectedRanges: nvdAffectedRanges(cve.configurations, cpe),
       },
       fixedVersion: relevantFixedVersion(version, fixedVersions),
       affectedVersion: version,

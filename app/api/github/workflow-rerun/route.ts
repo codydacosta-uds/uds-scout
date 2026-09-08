@@ -8,10 +8,13 @@ type RerunScope = "job" | "workflow";
 
 type RawJob = {
   id: number;
+  name: string;
+  html_url: string;
   run_url: string;
   status: string;
   conclusion: string | null;
 };
+type JobsResponse = { jobs: RawJob[] };
 
 function sameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
@@ -29,6 +32,26 @@ function validRepository(value: string) {
 
 function failed(conclusion: string | null) {
   return ["failure", "timed_out", "action_required", "startup_failure", "cancelled"].includes(conclusion ?? "");
+}
+
+export async function GET(request: NextRequest) {
+  const repository = request.nextUrl.searchParams.get("repository") ?? "";
+  const runId = Number(request.nextUrl.searchParams.get("run") ?? 0);
+  if (!validRepository(repository) || !Number.isSafeInteger(runId) || runId <= 0) return NextResponse.json({ error: "Choose a valid tracked workflow run." }, { status: 400 });
+  if (!isTrackedRepository(repository)) return NextResponse.json({ error: "That repository is not in the tracked workspace." }, { status: 403 });
+  try {
+    const [run, jobs] = await Promise.all([
+      githubRequest<RawRun>(`/repos/${repository}/actions/runs/${runId}`, 0),
+      githubRequest<JobsResponse>(`/repos/${repository}/actions/runs/${runId}/jobs?filter=latest&per_page=100`, 0),
+    ]);
+    return NextResponse.json({
+      run: { id: run.id, status: run.status, conclusion: run.conclusion, runAttempt: run.run_attempt ?? 1, updatedAt: run.updated_at, url: run.html_url },
+      jobs: jobs.jobs.map((job) => ({ id: job.id, name: job.name, status: job.status, conclusion: job.conclusion, url: job.html_url })),
+    });
+  } catch (error) {
+    const detail = apiError(error);
+    return NextResponse.json({ error: detail.message }, { status: detail.status });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -71,7 +94,7 @@ export async function POST(request: NextRequest) {
     }
 
     await githubWorkflowRerun(repository, runId, scope === "job" ? jobId : undefined);
-    return NextResponse.json({ accepted: true, scope });
+    return NextResponse.json({ accepted: true, scope, previousAttempt: run.run_attempt ?? 1 });
   } catch (error) {
     const detail = apiError(error);
     const message = detail.status === 403

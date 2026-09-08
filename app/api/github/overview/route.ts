@@ -23,6 +23,7 @@ type Viewer = { login: string; name: string | null; avatar_url: string; html_url
 type RunsResponse = { total_count: number; workflow_runs: RawRun[] };
 type ContentResponse = { content: string; html_url: string };
 type ReleaseResponse = { tag_name: string; html_url: string; body: string | null; published_at?: string | null; draft?: boolean; prerelease?: boolean };
+type TagResponse = { name: string; commit: { sha: string } };
 type CommonTasksResult = { repository: string; file: ContentResponse | null };
 type RawJob = {
   id: number;
@@ -100,6 +101,11 @@ function presentRun(run: RawRun, defaultBranch: string, details?: { failedJob: s
 
 function unresolvedFailures(runs: RawRun[], defaultBranch: string, activeBranches?: Set<string>) {
   const latestByWorkflowBranch = new Map<string, RawRun>();
+  const failedAttempts = new Map<string, number>();
+  for (const run of runs) {
+    const workflowBranch = `${run.name}:${run.head_branch ?? "unknown"}`;
+    if (pipelineFailed(run.conclusion)) failedAttempts.set(workflowBranch, (failedAttempts.get(workflowBranch) ?? 0) + 1);
+  }
   [...runs]
     .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
     .forEach((run) => {
@@ -108,7 +114,9 @@ function unresolvedFailures(runs: RawRun[], defaultBranch: string, activeBranche
         : `${run.name}:${run.head_branch ?? "unknown"}`;
       if (!latestByWorkflowBranch.has(key)) latestByWorkflowBranch.set(key, run);
     });
-  return [...latestByWorkflowBranch.values()].filter((run) => pipelineFailed(run.conclusion) && (run.head_branch === defaultBranch || !activeBranches || activeBranches.has(run.head_branch ?? "")));
+  return [...latestByWorkflowBranch.entries()]
+    .map(([, run]) => ({ run, failureAttempts: failedAttempts.get(`${run.name}:${run.head_branch ?? "unknown"}`) ?? 0 }))
+    .filter(({ run, failureAttempts: attempts }) => pipelineFailed(run.conclusion) && (run.head_branch === defaultBranch || (activeBranches && activeBranches.has(run.head_branch ?? "")) || attempts >= 3));
 }
 
 async function loadFailureDetails(repository: string, run: RawRun) {
@@ -136,7 +144,7 @@ function attentionForRepository(group: OperationalGroup, latestDefaultRun: RawRu
   const ready = pulls.filter((pull) => pull.workflow.state === "ready-to-merge");
   const needsOwnership = pulls.filter((pull) => !pull.workflow.automation && pull.assignees.length === 0 && !pull.draft);
   const activeBranches = new Set(group.openPulls.map((pull) => pull.head));
-  const nonDefaultFailure = unresolvedFailures(group.runs, group.repository.default_branch, activeBranches).find((run) => run.head_branch !== group.repository.default_branch && !routineAutomationRun(group, run));
+  const nonDefaultFailure = unresolvedFailures(group.runs, group.repository.default_branch, activeBranches).find(({ run }) => run.head_branch !== group.repository.default_branch && !routineAutomationRun(group, run));
 
   if (latestDefaultRun && pipelineFailed(latestDefaultRun.conclusion)) {
     return { level: "action-required" as const, reason: `The latest ${group.repository.default_branch} workflow failed.` };
@@ -154,7 +162,7 @@ function attentionForRepository(group: OperationalGroup, latestDefaultRun: RawRu
     return { level: "needs-attention" as const, reason: `${needsOwnership.length} human-created pull ${needsOwnership.length === 1 ? "request has" : "requests have"} no assignee.` };
   }
   if (udsCommonAttention) return { level: "needs-attention" as const, reason: "UDS Common configuration needs alignment." };
-  if (nonDefaultFailure) return { level: "monitor" as const, reason: `A ${nonDefaultFailure.head_branch ?? "non-default"} branch workflow is failing.` };
+  if (nonDefaultFailure) return { level: "monitor" as const, reason: `A ${nonDefaultFailure.run.head_branch ?? "non-default"} branch workflow is failing.` };
   if (!latestDefaultRun) return { level: "unknown" as const, reason: "No default-branch workflow result is available." };
   return { level: "healthy" as const, reason: "No selected-repository GitHub signal requires action." };
 }
@@ -239,11 +247,11 @@ export async function GET() {
     }));
 
     const commonRepositories = repositories.filter((repository) => repository.full_name !== SONIC_REPOSITORY);
-    const [coreFile, upstreamCoreRelease, commonTaskFiles, upstreamCommonRelease, zarfReleases, peprReleases, udsCliReleases] = await Promise.all([
+    const [coreFile, upstreamCoreRelease, commonTaskFiles, commonTags, zarfReleases, peprReleases, udsCliReleases] = await Promise.all([
       hasSonic ? githubRequest<ContentResponse>(`/repos/${SONIC_REPOSITORY}/contents/bundles/swf/uds-bundle.yaml`, 5 * 60_000).catch(() => null) : Promise.resolve(null),
       githubRequest<ReleaseResponse>("/repos/defenseunicorns/uds-core/releases/latest", 5 * 60_000).catch(() => null),
       Promise.all(commonRepositories.map(async (repository): Promise<CommonTasksResult> => ({ repository: repository.full_name, file: await githubRequest<ContentResponse>(`/repos/${repository.full_name}/contents/tasks.yaml`, 5 * 60_000).catch(() => null) }))),
-      githubRequest<ReleaseResponse>("/repos/defenseunicorns/uds-common/releases/latest", 5 * 60_000).catch(() => null),
+      githubRequest<TagResponse[]>("/repos/defenseunicorns/uds-common/tags?per_page=100", 5 * 60_000).catch(() => []),
       githubRequest<ReleaseResponse[]>("/repos/zarf-dev/zarf/releases?per_page=10", 5 * 60_000).catch(() => []),
       githubRequest<ReleaseResponse[]>("/repos/defenseunicorns/pepr/releases?per_page=10", 5 * 60_000).catch(() => []),
       githubRequest<ReleaseResponse[]>("/repos/defenseunicorns/uds-cli/releases?per_page=10", 5 * 60_000).catch(() => []),
@@ -275,13 +283,16 @@ export async function GET() {
     const coreVersion = coreText.match(/x-core:\s*&x-core[\s\S]{0,400}?\n\s*ref:\s*["']?([^\s"']+)/i)?.[1] ?? null;
     const trackedCoreSemver = semanticVersion(coreVersion);
     const upstreamCoreSemver = semanticVersion(upstreamCoreRelease?.tag_name ?? null);
-    const upstreamCommonSemver = semanticVersion(upstreamCommonRelease?.tag_name ?? null);
+    const upstreamCommonTag = commonTags.find((tag) => /^v\d+\.\d+\.\d+$/.test(tag.name)) ?? null;
+    const upstreamCommonRelease = upstreamCommonTag ? await githubRequest<ReleaseResponse>(`/repos/defenseunicorns/uds-common/releases/tags/${encodeURIComponent(upstreamCommonTag.name)}`, 5 * 60_000).catch(() => null) : null;
+    const upstreamCommonSemver = semanticVersion(upstreamCommonTag?.name ?? null);
     const udsCommonRepositories = commonTaskFiles.map(({ repository, file }) => {
       if (!file) return { repository, tasksUrl: null, includes: [], versions: [], status: "missing" as const };
       try {
         const includes = parseUdsCommonIncludes(Buffer.from(file.content, "base64").toString("utf8"));
         const versions = [...new Set(includes.flatMap((include) => include.version ? [include.version] : []))];
-        const status = !includes.length ? "not-configured" as const : !upstreamCommonSemver || includes.some((include) => !include.version) ? "unknown" as const : includes.every((include) => include.version === upstreamCommonSemver.normalized) ? "current" as const : "outdated" as const;
+        const includedSemvers = includes.map((include) => include.version ? semanticVersion(include.version) : null);
+        const status = !includes.length ? "not-configured" as const : !upstreamCommonSemver || includedSemvers.some((version) => !version) ? "unknown" as const : includedSemvers.every((version) => version?.normalized === upstreamCommonSemver.normalized) ? "current" as const : "outdated" as const;
         return { repository, tasksUrl: file.html_url, includes, versions, status };
       } catch {
         return { repository, tasksUrl: file.html_url, includes: [], versions: [], status: "unknown" as const };
@@ -291,7 +302,7 @@ export async function GET() {
 
     const pipelineRuns = operationalGroups.flatMap((group) => group.runs.map((rawRun) => ({ ...presentRun(rawRun, group.repository.default_branch, { failedJob: null, failedStep: null }), repository: group.repository.full_name })));
 
-    const workflowFailures: WorkflowFailure[] = (await Promise.all(operationalGroups.flatMap((group) => unresolvedFailures(group.runs, group.repository.default_branch, new Set(group.openPulls.map((pull) => pull.head))).filter((run) => !routineAutomationRun(group, run)).map(async (rawRun) => {
+    const workflowFailures: WorkflowFailure[] = (await Promise.all(operationalGroups.flatMap((group) => unresolvedFailures(group.runs, group.repository.default_branch, new Set(group.openPulls.map((pull) => pull.head))).filter(({ run }) => !routineAutomationRun(group, run)).map(async ({ run: rawRun, failureAttempts }) => {
       const matchingPull = group.openPulls.find((pull) => pull.workflow.headSha === rawRun.head_sha && pull.workflow.checks.failing > 0);
       const needsDetails = rawRun.head_branch === group.repository.default_branch || Boolean(matchingPull);
       const details = needsDetails ? await loadFailureDetails(group.repository.full_name, rawRun) : { failedJob: null, failedStep: null };
@@ -301,11 +312,14 @@ export async function GET() {
         ...run,
         repository: group.repository.full_name,
         blocksPullRequest,
+        failureAttempts,
         attentionReason: blocksPullRequest
           ? `Blocks pull request #${blocksPullRequest} because a required check is failing.`
           : run.defaultBranch
             ? `Failed on the default branch ${group.repository.default_branch}.`
-            : "Failed on a non-default branch and is not known to block a selected pull request.",
+            : failureAttempts >= 3
+              ? `Failed ${failureAttempts} times on this workflow branch.`
+              : "Failed on a non-default branch and is not known to block a selected pull request.",
       };
     })))).sort((a, b) => Number(Boolean(b.blocksPullRequest)) - Number(Boolean(a.blocksPullRequest)) || Number(b.defaultBranch) - Number(a.defaultBranch) || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 

@@ -157,7 +157,7 @@ export function DrawerKeyValueList({ items }: {
   );
 }
 
-export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, errorValue = false, warningHighlight = false, successHighlight = false, valueClassName }: {
+export function MetricCard({ title, value, description, info, indicator, onDetails, attention = false, errorValue = false, warningHighlight = false, successHighlight = false, valueClassName, valueTone }: {
   title: string;
   value: React.ReactNode;
   description: string;
@@ -169,6 +169,7 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
   warningHighlight?: boolean;
   successHighlight?: boolean;
   valueClassName?: string;
+  valueTone?: "success" | "warning" | "error";
 }) {
   const className = ["metric-card", attention && "metric-card-attention", warningHighlight && "metric-card-warning", successHighlight && "metric-card-success"].filter(Boolean).join(" ");
   const indicatorIcon = indicator?.type === "error" ? "status-negative"
@@ -180,11 +181,15 @@ export function MetricCard({ title, value, description, info, indicator, onDetai
 
   return (
     <Container className={className}>
-      {indicator && onDetails ? <button type="button" className={`metric-card-indicator metric-card-indicator-${indicator.type}`} onClick={onDetails} aria-label={`${indicator.label}. View details`} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></button> : null}
-      <SpaceBetween size="s">
+      {indicator ? onDetails ? <button type="button" className={`metric-card-indicator metric-card-indicator-${indicator.type}`} onClick={onDetails} aria-label={`${indicator.label}. View details`} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></button> : <span className={`metric-card-indicator metric-card-indicator-${indicator.type}`} aria-label={indicator.label} title={indicator.label}><Icon name={indicatorIcon} variant={indicatorVariant} /></span> : null}
+      <SpaceBetween size="s" className="metric-card-content">
         <div className="metric-card-heading"><Box variant="awsui-key-label">{title}</Box>{info}</div>
-        <Box className={valueClassName} variant="awsui-value-large" color={attention || errorValue ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
-        <Box color="text-body-secondary">{description}</Box>
+        <Box className={[
+          "metric-card-value",
+          valueClassName,
+          valueTone && `metric-card-value-${valueTone}`,
+        ].filter(Boolean).join(" ")} variant="awsui-value-large" color={attention || errorValue ? "text-status-error" : warningHighlight ? "text-status-warning" : undefined}>{value}</Box>
+        <Box className="metric-card-description" color="text-body-secondary">{description}</Box>
         {onDetails ? <Button variant="inline-link" onClick={onDetails}>View details</Button> : null}
       </SpaceBetween>
     </Container>

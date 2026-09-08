@@ -23,14 +23,32 @@ import Tabs from "@cloudscape-design/components/tabs";
 import TextFilter from "@cloudscape-design/components/text-filter";
 import TopNavigation from "@cloudscape-design/components/top-navigation";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { UDS_SCOUT_REPOSITORY_URL, type WorkspacePreset } from "@/lib/repository-constants";
 import { RENOVATE_REVIEW_DAYS, type RenovateReviewDay } from "@/lib/renovate-review";
 import { ActionSuccessToast, PrimaryActionButton, SaveButton, type ActionConfirmation } from "./action-ui";
 import { InfoPopover } from "./info-ui";
 import type { SetupGitlabProject, SetupGitlabProjectCatalog, SetupGitlabViewer, SetupRepository, SetupRepositoryCatalog, SetupStatus, SetupViewer } from "./setup-types";
+import { ConsoleTopNavigation } from "./OperationsConsole";
 
 let cachedSetupStatus: SetupStatus | null = null;
+const SETUP_STATUS_CACHE_KEY = "uds-scout:setup-status";
+
+function clearBrowserWorkspaceCache() {
+  if (typeof window === "undefined") return;
+  for (const key of [SETUP_STATUS_CACHE_KEY, "uds-scout:overview", "uds-scout:sidebar", "uds-scout:viewer"]) window.localStorage.removeItem(key);
+}
+
+function browserSetupStatus() {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SETUP_STATUS_CACHE_KEY) ?? "null") as SetupStatus | null;
+    return value && typeof value.configured === "boolean" && Array.isArray(value.repositories) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 const MAX_MANAGED_REPOSITORIES = 25;
 const renovateReviewScheduleOptions = [
   ...RENOVATE_REVIEW_DAYS.slice(1),
@@ -82,6 +100,20 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   const [rerunSetupConfirmVisible, setRerunSetupConfirmVisible] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [settingsTab, setSettingsTab] = useState(initialSettingsTab);
+  const [lightMode, setLightMode] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("uds-scout:theme") === "light");
+
+  useEffect(() => {
+    const enabled = window.localStorage.getItem("uds-scout:theme") === "light";
+    setLightMode(enabled);
+    document.body.classList.toggle("awsui-dark-mode", !enabled);
+  }, []);
+
+  const toggleTheme = () => {
+    const enabled = !lightMode;
+    setLightMode(enabled);
+    document.body.classList.toggle("awsui-dark-mode", !enabled);
+    window.localStorage.setItem("uds-scout:theme", enabled ? "light" : "dark");
+  };
   const [disconnectTarget, setDisconnectTarget] = useState<"github" | "gitlab" | null>(null);
   const [disconnectConfirmation, setDisconnectConfirmation] = useState("");
   const [repositoriesLoading, setRepositoriesLoading] = useState(startsAtRepositories);
@@ -200,6 +232,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Setup could not be reset.");
       cachedSetupStatus = null;
+      clearBrowserWorkspaceCache();
       setResetConfirmVisible(false);
       onReset();
       router.replace("/");
@@ -229,6 +262,7 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
       setDisconnectConfirmation("");
       if (provider === "github") {
         cachedSetupStatus = null;
+        clearBrowserWorkspaceCache();
         onReset();
         router.replace("/setup");
         return;
@@ -682,14 +716,14 @@ function SetupWizard({ status, settingsMode, initialSettingsTab = "workspace", r
   return (
     <>
       <div id="setup-top-navigation">
-        <TopNavigation
+        {settingsMode ? <ConsoleTopNavigation viewer={status.viewer ?? undefined} onHome={() => router.push("/")} onHelp={() => router.push("/")} lightMode={lightMode} onToggleTheme={toggleTheme} /> : <TopNavigation
           identity={{ href: "/", title: "UDS Scout", logo: { src: "/doug-lg.svg", alt: "Doug" }, onFollow: (event) => { event.preventDefault(); router.push("/"); } }}
           utilities={[
             { type: "button", iconUrl: "/github-mark.svg", iconAlt: "GitHub", ariaLabel: "Open UDS Scout repository on GitHub", href: UDS_SCOUT_REPOSITORY_URL, target: "_blank", rel: "noopener noreferrer", disableUtilityCollapse: true },
-            ...(settingsMode || replayMode ? [{ type: "button" as const, text: "Back to operations", iconName: "arrow-left" as const, onClick: () => router.push("/") }] : []),
+            ...(replayMode ? [{ type: "button" as const, text: "Back to operations", iconName: "arrow-left" as const, onClick: () => router.push("/") }] : []),
           ]}
           i18nStrings={{ overflowMenuTriggerText: "More", overflowMenuTitleText: "All", overflowMenuDismissIconAriaLabel: "Close menu" }}
-        />
+        />}
       </div>
       <main className="setup-shell">
         <SpaceBetween size="l">
@@ -934,6 +968,15 @@ export function ApplicationGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
 
+  useLayoutEffect(() => {
+    if (status) return;
+    const cached = browserSetupStatus();
+    if (cached) {
+      cachedSetupStatus = cached;
+      setStatus(cached);
+    }
+  }, [status]);
+
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
@@ -945,6 +988,7 @@ export function ApplicationGate({ children }: { children: React.ReactNode }) {
       })
       .then((data) => {
         cachedSetupStatus = data;
+        try { window.localStorage.setItem(SETUP_STATUS_CACHE_KEY, JSON.stringify(data)); } catch { /* Continue with the in-memory status when browser storage is unavailable. */ }
         setStatus(data);
       })
       .catch((reason) => {

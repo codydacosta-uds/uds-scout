@@ -11,7 +11,7 @@ import {
 } from "@/lib/github";
 import { isTrackedRepository } from "@/lib/tracked-repositories";
 import { loadRepositoryOperations } from "@/lib/github-operations";
-import { renovateAutomergeStatus } from "@/lib/renovate-config";
+import { renovateHealth } from "@/lib/renovate-config";
 
 export const runtime = "nodejs";
 
@@ -52,14 +52,14 @@ export async function GET(request: NextRequest) {
 
   try {
     const viewer = await githubRequest<{ login: string }>("/user", 5 * 60_000);
-    const [details, openPulls, closedPulls, runsResult, issueResults, releaseResults, renovateAutomerge] = await Promise.all([
+    const [details, openPulls, closedPulls, runsResult, issueResults, releaseResults, renovateHealthResult] = await Promise.all([
       githubRequest<RawRepo>(`/repos/${repository}`),
       loadRepositoryOperations(repository, viewer.login).then((result) => result.pulls).catch(async () => (await githubAllPages<RawPull>(`/repos/${repository}/pulls?state=open&sort=updated&direction=desc`, 10)).map(presentPull)),
       githubAllPages<RawPull>(`/repos/${repository}/pulls?state=closed&sort=updated&direction=desc`, 20),
       githubRequest<RunsResponse>(`/repos/${repository}/actions/runs?per_page=30`).catch(() => null),
       githubAllPages<RawIssue>(`/repos/${repository}/issues?state=open&sort=updated&direction=desc`, 10).catch(() => []),
       githubRequest<RawRelease[]>(`/repos/${repository}/releases?per_page=30`, 5 * 60_000).catch(() => []),
-      renovateAutomergeStatus(repository),
+      renovateHealth(repository),
     ]);
 
     const activeOpenPulls = openPulls.filter((pull) => !pull.workflow.ignored);
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
             .filter((label): label is { name?: string; color?: string } => typeof label !== "string")
             .map((label) => ({ name: label.name ?? "label", color: label.color ?? "6b7280" })),
         })),
-      renovateAutomerge,
+      renovateHealth: renovateHealthResult,
       actions: runsResult
         ? {
             total: runsResult.total_count,

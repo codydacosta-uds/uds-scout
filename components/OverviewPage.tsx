@@ -451,7 +451,9 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
       ? `${primaryFailure.repository.split("/").pop()} is blocking PR #${primaryFailure.blocksPullRequest}.`
       : primaryFailure.defaultBranch
         ? `The default branch for ${primaryFailure.repository.split("/").pop()} is failing.`
-        : `${primaryFailure.branch ?? "A non-default branch"} is failing in ${primaryFailure.repository.split("/").pop()}.`
+        : primaryFailure.failureAttempts >= 3
+          ? `${primaryFailure.name} failed ${primaryFailure.failureAttempts} times in ${primaryFailure.repository.split("/").pop()}.`
+          : `${primaryFailure.branch ?? "A non-default branch"} is failing in ${primaryFailure.repository.split("/").pop()}.`
     : passingPipelines ? "Default branch workflows are passing." : "No workflow failures need attention.";
   const recommendedWorkItems = [...new Map([
     ...overview.myWork.waitingOnMe,
@@ -585,7 +587,7 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
       />
     ),
     issues: <MetricCard title="Issues assigned to me" value={overview.myWork.assignedIssues.length} description={overview.myWork.assignedIssues.length ? "Assigned issues need follow-up." : "No assigned issues need action."} onDetails={() => openDrawer({ type: "my-work", queue: "assigned-issues" })} />,
-    pipelines: <MetricCard title="Workflow failures" value={overview.metrics.pipelineFailures ? `${overview.metrics.pipelineFailures} unresolved` : "None"} description={primaryFailureContext} onDetails={() => openDrawer({ type: "pipelines" })} attention={overview.workflowFailures.some((failure) => failure.defaultBranch || failure.blocksPullRequest)} indicator={overview.metrics.pipelineFailures ? { type: "error", label: "Needs investigation" } : undefined} />,
+    pipelines: <MetricCard title="Workflow failures" value={overview.metrics.pipelineFailures ? `${overview.metrics.pipelineFailures} unresolved` : "None"} description={primaryFailureContext} onDetails={() => openDrawer({ type: "pipelines" })} attention={overview.workflowFailures.some((failure) => failure.defaultBranch || failure.blocksPullRequest || failure.failureAttempts >= 3)} indicator={overview.metrics.pipelineFailures ? { type: "error", label: "Needs investigation" } : undefined} />,
     "uds-versions": overview.capabilities.sonic ? (
       <MetricCard
         title="UDS versions"
@@ -697,20 +699,22 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
         ) : null}
 
         <Table
+          className="repository-status-table"
           variant="container"
           stickyHeader
+          stickyColumns={{ first: 1 }}
           stripedRows
           trackBy="id"
           header={<Header variant="h2" counter={`(${overview.repositories.length})`} description="Attention across selected repositories." info={<PanelInfo header="Repository attention">Action required means an observable failure or work waiting on you. Needs attention covers blockers, merge-ready work, and unowned human pull requests. Security appears as an additional repository context signal, with incomplete visibility kept explicit. Routine automation and pull requests labeled stale do not elevate repository attention.</PanelInfo>}>Repository status</Header>}
           items={overview.repositories}
           columnDefinitions={[
-            { id: "repository", header: "Repository", cell: (item) => <SpaceBetween size="xxs"><Link href={`/repositories/${item.fullName}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "repository", repository: item }); }} fontSize="body-m">{item.name}</Link><Box color="text-body-secondary">{item.fullName.split("/")[0]}</Box></SpaceBetween>, sortingField: "name" },
-            { id: "health", header: "Attention", cell: (item) => { const action = repositoryAttentionAction(item, overview); return <SpaceBetween size="xxs">{repositoryHealth(item)}{action ? <Button variant="inline-link" ariaLabel={`${action.label} for ${item.fullName}`} onClick={() => openDrawer(action.selection)}>{item.attention.reason}</Button> : <Box color="text-body-secondary">{item.attention.reason}</Box>}</SpaceBetween>; } },
-            { id: "workflow", header: "Pull request workflow", cell: (item) => <SpaceBetween size="xxs"><Box>{item.workflowCounts.waitingOnMe} on you · {item.workflowCounts.blocked} blocked</Box><Box color="text-body-secondary">{item.workflowCounts.readyToMerge} ready · {item.workflowCounts.waitingOnOthers} waiting elsewhere</Box></SpaceBetween> },
-            { id: "reviews", header: "Your reviews", cell: (item) => item.reviewRequests ? <Button variant="inline-link" onClick={() => openDrawer({ type: "review-requests", repository: item.fullName })}>{item.reviewRequests} requested</Button> : <Box color="text-body-secondary">None</Box> },
-            { id: "pipeline", header: "Default branch workflow", cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "pipelines", repository: item.fullName })}>{pipelineStatus(item.pipeline)}</Button> },
-            { id: "renovate", header: "Renovate attention", cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} elevated</Badge></Link> : <Box color="text-body-secondary">Informational</Box> },
-            { id: "security", header: "Security context", cell: (item) => {
+            { id: "repository", header: "Repository", width: 125, cell: (item) => <SpaceBetween size="xxs"><Link href={`/repositories/${item.fullName}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "repository", repository: item }); }} fontSize="body-m">{item.name}</Link><Box color="text-body-secondary">{item.fullName.split("/")[0]}</Box></SpaceBetween>, sortingField: "name" },
+            { id: "health", header: "Attention", width: 180, cell: (item) => { const action = repositoryAttentionAction(item, overview); return <SpaceBetween size="xxs">{repositoryHealth(item)}{action ? <Button variant="inline-link" ariaLabel={`${action.label} for ${item.fullName}`} onClick={() => openDrawer(action.selection)}>{item.attention.reason}</Button> : <Box color="text-body-secondary">{item.attention.reason}</Box>}</SpaceBetween>; } },
+            { id: "workflow", header: "Pull request workflow", width: 175, cell: (item) => <SpaceBetween size="xxs"><Box>{item.workflowCounts.waitingOnMe} on you · {item.workflowCounts.blocked} blocked</Box><Box color="text-body-secondary">{item.workflowCounts.readyToMerge} ready · {item.workflowCounts.waitingOnOthers} waiting elsewhere</Box></SpaceBetween> },
+            { id: "reviews", header: "Your reviews", width: 95, cell: (item) => item.reviewRequests ? <Button variant="inline-link" onClick={() => openDrawer({ type: "review-requests", repository: item.fullName })}>{item.reviewRequests} requested</Button> : <Box color="text-body-secondary">None</Box> },
+            { id: "pipeline", header: "Default branch workflow", width: 150, cell: (item) => <Button variant="inline-link" onClick={() => openDrawer({ type: "pipelines", repository: item.fullName })}>{pipelineStatus(item.pipeline)}</Button> },
+            { id: "renovate", header: "Renovate attention", width: 130, cell: (item) => item.unassignedRenovatePulls ? <Link href={`/renovate?repository=${encodeURIComponent(item.fullName)}`} onFollow={(event) => { event.preventDefault(); openDrawer({ type: "renovate", repository: item.fullName, unassignedOnly: true }); }}><Badge color="severity-medium">{item.unassignedRenovatePulls} elevated</Badge></Link> : <Box color="text-body-secondary">Informational</Box> },
+            { id: "security", header: "Security context", width: 180, cell: (item) => {
               const security = securityByRepository.get(item.fullName.toLowerCase());
               if (!security || security.state === "queued" || security.state === "refreshing" || security.state === "pending") return <StatusIndicator type="in-progress">Analyzing</StatusIndicator>;
               if (!security.applicable) return <Box color="text-body-secondary">Not applicable</Box>;
@@ -721,10 +725,10 @@ export function OverviewPage({ overview, securityWorkspace, personalWorkState, o
               const otherAppCves = new Set(appFindings.filter((finding) => finding.severity !== "critical" && finding.severity !== "high").map((finding) => finding.vulnerabilityId));
               const appCritical = appFindings.some((finding) => finding.severity === "critical");
               const severeDependencies = new Set(security.findings.filter((finding) => finding.category !== "application" && (finding.severity === "critical" || finding.severity === "high")).map((finding) => finding.vulnerabilityId));
-              const label = highImpactAppCves.size ? `${highImpactAppCves.size} high-impact app CVE${highImpactAppCves.size === 1 ? "" : "s"}` : otherAppCves.size ? `${otherAppCves.size} other app ${otherAppCves.size === 1 ? "advisory" : "advisories"}` : severeDependencies.size ? `${severeDependencies.size} high-impact dependency CVE${severeDependencies.size === 1 ? "" : "s"}` : !hasCoverage ? "Visibility unavailable" : !complete ? "Visibility limited" : "No immediate action";
+              const label = appCritical ? `${new Set(appFindings.filter((finding) => finding.severity === "critical").map((finding) => finding.vulnerabilityId)).size} critical app CVE${new Set(appFindings.filter((finding) => finding.severity === "critical").map((finding) => finding.vulnerabilityId)).size === 1 ? "" : "s"}` : highImpactAppCves.size ? `${highImpactAppCves.size} high-impact app CVE${highImpactAppCves.size === 1 ? "" : "s"}` : otherAppCves.size ? `${otherAppCves.size} other app ${otherAppCves.size === 1 ? "advisory" : "advisories"}` : severeDependencies.size ? `${severeDependencies.size} high-impact dependency CVE${severeDependencies.size === 1 ? "" : "s"}` : !hasCoverage ? "Visibility unavailable" : !complete ? "Visibility limited" : "No immediate action";
               return <Button variant="inline-link" onClick={() => navigate(`/repositories/${item.fullName}?tab=security`)}>{appCritical ? <StatusIndicator type="error">{label}</StatusIndicator> : highImpactAppCves.size ? <StatusIndicator type="warning">{label}</StatusIndicator> : otherAppCves.size || severeDependencies.size ? <StatusIndicator type="info">{label}</StatusIndicator> : !complete ? <StatusIndicator type="pending">{label}</StatusIndicator> : <StatusIndicator type="success">{label}</StatusIndicator>}</Button>;
             } },
-            { id: "uds-common", header: "UDS Common", cell: (item) => item.udsCommon ? udsCommonStatusAction(item.udsCommon, () => openDrawer({ type: "uds-common", repository: item.fullName })) : <Box color="text-body-secondary">Not applicable</Box> },
+            { id: "uds-common", header: "UDS Common", width: 125, cell: (item) => item.udsCommon ? udsCommonStatusAction(item.udsCommon, () => openDrawer({ type: "uds-common", repository: item.fullName })) : <Box color="text-body-secondary">Not applicable</Box> },
           ]}
           empty={<EmptyState title="No repositories configured" detail="Add repositories to the tracked repository configuration." />}
         />

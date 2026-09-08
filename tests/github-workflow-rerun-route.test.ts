@@ -15,7 +15,7 @@ vi.mock("@/lib/github", () => ({
 }));
 vi.mock("@/lib/tracked-repositories", () => ({ isTrackedRepository: mocks.tracked }));
 
-import { POST } from "@/app/api/github/workflow-rerun/route";
+import { GET, POST } from "@/app/api/github/workflow-rerun/route";
 
 const repository = "uds-packages/jenkins";
 const run = { id: 123, status: "completed", conclusion: "failure" };
@@ -62,7 +62,16 @@ describe("GitHub workflow re-run route", () => {
     expect(response.status).toBe(200);
     expect(mocks.request).toHaveBeenCalledTimes(1);
     expect(mocks.rerun).toHaveBeenCalledWith(repository, 123, undefined);
-    expect(await response.json()).toEqual({ accepted: true, scope: "workflow" });
+    expect(await response.json()).toEqual({ accepted: true, scope: "workflow", previousAttempt: 1 });
+  });
+
+  it("returns fresh workflow and latest-job status for automatic polling", async () => {
+    mocks.request.mockReset()
+      .mockResolvedValueOnce({ ...run, status: "in_progress", conclusion: null, run_attempt: 2, updated_at: "2026-09-08T18:00:00Z", html_url: "https://github.com/example/run" })
+      .mockResolvedValueOnce({ jobs: [{ ...job, name: "verify-test", html_url: "https://github.com/example/job", status: "in_progress", conclusion: null }] });
+    const response = await GET(new NextRequest(`http://127.0.0.1:3001/api/github/workflow-rerun?repository=${repository}&run=123`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ run: { id: 123, status: "in_progress", runAttempt: 2 }, jobs: [{ id: 456, name: "verify-test", status: "in_progress" }] });
   });
 
   it("verifies that a failed job belongs to the requested run before re-running it", async () => {

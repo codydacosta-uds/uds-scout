@@ -117,6 +117,28 @@ export async function githubWorkflowRerun(repository: string, runId: number, job
   clearGitHubCache();
 }
 
+export async function githubMutation<T = unknown>(path: string, method: "POST" | "PUT" | "PATCH", body: unknown): Promise<T> {
+  const response = await fetch(`${API_ROOT}${path}`, {
+    method,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token()}`,
+      "X-GitHub-Api-Version": API_VERSION,
+      "User-Agent": USER_AGENT,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try { detail = ((await response.json()) as { message?: string }).message ?? detail; } catch { /* keep status text */ }
+    throw new GitHubApiError(`GitHub API: ${detail}`, response.status);
+  }
+  clearGitHubCache();
+  return response.status === 204 ? {} as T : await response.json() as T;
+}
+
 export async function githubRequest<T>(path: string, ttl = CACHE_TTL): Promise<T> {
   const cached = responseCache.get(path);
   if (cached && cached.expires > Date.now()) {
@@ -390,6 +412,7 @@ export type RawRun = {
   conclusion: string | null;
   event: string;
   run_number: number;
+  run_attempt?: number;
   created_at: string;
   updated_at: string;
   actor: { login: string; avatar_url: string } | null;
